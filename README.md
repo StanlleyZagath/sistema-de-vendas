@@ -1,6 +1,6 @@
 # Sistema de Vendas
 
-Sistema de vendas completo que roda direto no navegador, sem servidor e sem instalação. Os dados ficam salvos no próprio navegador (localStorage).
+Sistema de vendas completo que roda direto no navegador, sem servidor e sem instalação. Os dados ficam salvos no próprio navegador (localStorage).   https://stanlleyzagath.github.io/sistema-de-vendas/
 
 ## O que tem
 

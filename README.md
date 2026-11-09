@@ -49,3 +49,33 @@ O catálogo mostra o estoque do momento em que foi gerado. Gere e publique de no
 | `style.css` | Visual (vidro, claro/escuro, celular) |
 | `app.js` | Toda a lógica do sistema |
 | `catalog.js` | Modelo do catálogo público gerado |
+
+## Instalar no celular (PWA)
+
+O sistema pode ser instalado como app, mas precisa estar publicado num endereço **https** (Netlify Drop, Cloudflare Pages, GitHub Pages). Pelo arquivo local ou `localhost` não instala no celular.
+
+- **Android (Chrome):** abra o link, menu ⋮ → **Instalar app** (ou o botão "Instalar app" no menu Conta do sistema).
+- **iPhone (Safari):** **Compartilhar** → **Adicionar à Tela de Início**.
+
+Os dados ficam no navegador de cada aparelho. Para levar do computador ao celular, use **Backup** e **Restaurar**.
+
+## Importar NF-e
+
+Em **Produtos e estoque → Importar NF-e**, escolha o XML da nota de compra. Os itens iguais (por código ou nome) são somados ao estoque, e os novos viram produtos com preço = custo + margem. Uma nota já importada vem marcada como "Ignorar" para não duplicar o estoque.
+
+## Nuvem com Firebase (opcional)
+
+Sem configuração, os dados ficam só no navegador. Com o Firebase, PC e celular veem os mesmos dados, vários vendedores usam ao mesmo tempo e há backup automático. Plano gratuito (Spark) é suficiente para uma loja pequena.
+
+1. Em [console.firebase.google.com](https://console.firebase.google.com) crie um projeto.
+2. **Build → Authentication → Começar → E-mail/senha** (ativar).
+3. **Build → Firestore Database → Criar banco** (modo produção, região `southamerica-east1`).
+4. Aba **Regras** do Firestore: cole o conteúdo de `firestore.rules` e publique.
+5. **Configurações do projeto → Seus apps → Web (`</>`)**: registre o app e copie o `firebaseConfig`.
+6. Cole a configuração em `firebase-config.js` (troque o `null`) e publique o site em https.
+7. Em **Authentication → Configurações → Domínios autorizados**, adicione o domínio onde o site está publicado.
+8. Abra o site: a primeira tela pede para **criar o administrador** (faça isso logo, antes de divulgar o link). Se houver dados salvos no aparelho, o sistema oferece enviá-los para a nuvem.
+
+Depois, em **Usuários**, o administrador cria o acesso dos vendedores (e-mail e senha inicial). Quem esquecer a senha usa "Esqueci a senha" na tela de entrada.
+
+Observações: a numeração das vendas pode repetir se dois aparelhos venderem no mesmo segundo; duas pessoas editando o mesmo produto ao mesmo tempo ficam com a última alteração; cada produto aceita até cerca de 1 MB de fotos.

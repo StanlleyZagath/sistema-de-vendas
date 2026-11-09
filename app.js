@@ -29,7 +29,7 @@ function seed() {
 }
 function normalize(d) {
   d.settings ||= {}; d.settings.name ||= 'Minha loja'; d.settings.wa ||= '';
-  d.settings.tagline ??= 'Escolha seus produtos e finalize o pedido pelo WhatsApp.'; d.settings.color ||= '#0071e3'; d.settings.url ||= ''; d.settings.pdfmsg ||= DEF_PDFMSG; d.settings.ig ||= ''; d.settings.cvMode ||= 'cor'; d.settings.cvColor ||= d.settings.color; d.settings.cvImg ||= ''; d.settings.cvOp ??= 40;
+  d.settings.tagline ??= 'Escolha seus produtos e finalize o pedido pelo WhatsApp.'; d.settings.color ||= '#0071e3'; d.settings.url ||= ''; d.settings.pdfmsg ||= DEF_PDFMSG; d.nfeKeys ||= []; d.settings.ig ||= ''; d.settings.cvMode ||= 'cor'; d.settings.cvColor ||= d.settings.color; d.settings.cvImg ||= ''; d.settings.cvOp ??= 40;
   d.receivables ||= []; d.users ||= []; d.sales ||= []; d.leads ||= []; d.clients ||= []; d.categories ||= [];
   d.products.forEach(p => {
     if (!p.imgs) p.imgs = p.img ? [p.img] : [];
@@ -39,8 +39,9 @@ function normalize(d) {
   return d;
 }
 function load() { try { const d = JSON.parse(localStorage.getItem(KEY)); if (d && d.products) return normalize(d); } catch (e) { } return normalize(seed()); }
-let db = load();
-function save() { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) { toast('Não foi possível salvar (espaço cheio? tente fotos menores ou faça backup)'); } }
+const CL = window.CLOUD || { enabled: false };
+let db = CL.enabled ? normalize(seed()) : load();
+function save() { if (CL.enabled) { CL.schedulePush(); return; } try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) { toast('Não foi possível salvar (espaço cheio? tente fotos menores ou faça backup)'); } }
 const prod = id => db.products.find(p => p.id === id);
 const client = id => db.clients.find(c => c.id === id);
 const done = () => db.sales.filter(s => s.status === 'concluída');
@@ -74,24 +75,28 @@ async function hashPw(p) {
 const isAdmin = () => cur?.role === 'admin';
 const ADMIN_ONLY = ['dashboard', 'produtos', 'relatorios', 'usuarios', 'catalogo'];
 async function ensureUsers() {
+  if (CL.enabled) return;
   if (!db.users.length) { db.users.push({ id: uid(), name: 'Administrador', login: 'admin', role: 'admin', commission: 0, pass: await hashPw('admin'), mustChange: true }); save(); }
 }
 function sessGet() { try { return sessionStorage.getItem('vendas_user'); } catch (e) { return null; } }
 function sessSet(v) { try { v ? sessionStorage.setItem('vendas_user', v) : sessionStorage.removeItem('vendas_user'); } catch (e) { } }
+let loginMsg = '';
 function showLogin() {
-  cur = null; $('#login').hidden = false; $('#lerr').textContent = '';
+  cur = null; $('#login').hidden = false; $('#lerr').textContent = loginMsg; loginMsg = '';
+  if (CL.enabled) { cloudLoginUi(); return; }
   const a = db.users.find(u => u.mustChange);
   $('#lhint').textContent = a ? `Primeiro acesso: usuário "${a.login}", senha "admin". Troque a senha depois de entrar.` : '';
   $('#lform').reset(); $('#lform').login.focus();
 }
 $('#lform').onsubmit = async e => {
   e.preventDefault();
+  if (CL.enabled) { try { $('#lerr').textContent = ''; await CL.signIn(e.target.login.value.trim(), e.target.pass.value); } catch (er) { $('#lerr').textContent = authMsg(er); } return; }
   const f = e.target, u = db.users.find(x => x.login.toLowerCase() === f.login.value.trim().toLowerCase());
   if (!u || u.pass !== await hashPw(f.pass.value)) { $('#lerr').textContent = 'Usuário ou senha incorretos'; return; }
   sessSet(u.id); enter(u);
 };
 function enter(u) {
-  cur = u; $('#login').hidden = true;
+  cur = u; if (CL.enabled) CL.role = u.role; $('#login').hidden = true;
   $('#who').textContent = `${u.name} · ${u.role === 'admin' ? 'administrador' : 'vendedor'}`;
   document.querySelectorAll('#nav a').forEach(a => { a.hidden = ADMIN_ONLY.includes(a.dataset.v) && !isAdmin(); });
   document.querySelectorAll('.nav-h[data-admin]').forEach(h => { h.hidden = !isAdmin(); });
@@ -291,7 +296,7 @@ V.receber = () => {
 /* ========== Produtos ========== */
 let pf = { q: '', cat: '', st: '', sort: 'name' };
 V.produtos = () => {
-  setActions('<button class="btn ghost" onclick="catModal()">Categorias</button><button class="btn" onclick="A.editProd()">+ Novo produto</button>');
+  setActions('<button class="btn ghost" onclick="catModal()">Categorias</button><button class="btn ghost" onclick="A.nfe()">Importar NF-e</button><button class="btn" onclick="A.editProd()">+ Novo produto</button>');
   setMain(`<div class="toolbar">
     <input placeholder="Buscar produto ou código..." value="${esc(pf.q)}" oninput="pf.q=this.value;prodTable()">
     <select onchange="pf.cat=this.value;prodTable()">${catOptions(pf.cat, 'Todas as categorias')}<option value="__none" ${pf.cat === '__none' ? 'selected' : ''}>Sem categoria</option></select>
@@ -365,6 +370,48 @@ function shrink(file, max = 640) {
   });
 }
 
+/* ========== Importar NF-e (XML) ========== */
+function parseNfe(xml) {
+  const d = new DOMParser().parseFromString(xml, 'application/xml');
+  const inf = d.getElementsByTagNameNS('*', 'infNFe')[0];
+  if (d.getElementsByTagName('parsererror').length || !inf) throw new Error('xml');
+  const q = (el, n) => { const x = el && el.getElementsByTagNameNS('*', n)[0]; return x ? x.textContent.trim() : ''; };
+  const items = [...inf.getElementsByTagNameNS('*', 'det')].map(det => {
+    const p = det.getElementsByTagNameNS('*', 'prod')[0], ean = q(p, 'cEAN');
+    return { code: q(p, 'cProd'), ean: /^\d{8,14}$/.test(ean) ? ean : '', name: q(p, 'xProd'), qty: parseFloat(q(p, 'qCom')) || 0, cost: parseFloat(q(p, 'vUnCom')) || 0 };
+  });
+  return { key: (inf.getAttribute('Id') || '').replace(/^NFe/, ''), num: q(inf, 'nNF'), supplier: q(inf.getElementsByTagNameNS('*', 'emit')[0], 'xNome'), items };
+}
+const normTxt = t => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+function nfeModal(nfs) {
+  const rows = [];
+  nfs.forEach(nf => nf.items.forEach(it => {
+    const m = db.products.find(p => p.sku && [it.code, it.ean].some(c => c && normTxt(c) === normTxt(p.sku))) || db.products.find(p => normTxt(p.name) === normTxt(it.name));
+    rows.push({ ...it, nf, match: m ? m.id : '', dup: db.nfeKeys.includes(nf.key) });
+  }));
+  const opts = r => `${r.match ? `<option value="m:${r.match}">Somar a: ${esc(prod(r.match).name)}</option>` : ''}<option value="new" ${r.match ? '' : 'selected'}>Criar produto novo</option><option value="skip" ${r.dup ? 'selected' : ''}>Ignorar</option><optgroup label="Somar a outro produto">${db.products.map(p => `<option value="m:${p.id}">${esc(p.name)}</option>`).join('')}</optgroup>`;
+  const dups = nfs.filter(nf => db.nfeKeys.includes(nf.key));
+  openModal('Importar NF-e', `
+    ${nfs.map(nf => `<p class="sub">NF ${esc(nf.num || '?')} · ${esc(nf.supplier || 'fornecedor')} · ${nf.items.length} item(ns)</p>`).join('')}
+    ${dups.length ? '<p class="out warn" style="padding:8px 10px;border-radius:8px">Atenção: ' + dups.length + ' nota(s) já foram importadas antes. Os itens vieram como "Ignorar" para não duplicar o estoque.</p>' : ''}
+    <div class="row"><label>Margem para produto novo (%)<input name="mk" type="number" min="0" step="any" value="100"></label>
+    <label class="chk-l" style="align-self:end"><input type="checkbox" name="uc" checked> Atualizar o custo dos produtos</label></div>
+    <div class="tw"><table><tr><th>Item da nota</th><th class="r">Qtd</th><th class="r">Custo un.</th><th>O que fazer</th></tr>
+    ${rows.map((r, i) => `<tr><td><input name="n${i}" value="${esc(r.name)}"><small>${esc(r.code)}</small></td><td class="r"><input name="q${i}" type="number" min="0" step="1" value="${Math.round(r.qty)}" style="width:80px"></td><td class="r">${brl(r.cost)}</td><td><select name="a${i}">${opts(r)}</select></td></tr>`).join('')}</table></div>
+    <p class="sub">Produto novo recebe preço = custo + margem; ajuste depois em Editar. Itens iguais por código ou nome já vêm marcados para somar.</p>`,
+  fd => {
+    const mk = parseFloat(fd.get('mk')) || 0, uc = fd.get('uc') === 'on'; let add = 0, neu = 0;
+    rows.forEach((r, i) => {
+      const a = fd.get('a' + i), qty = parseInt(fd.get('q' + i)) || 0;
+      if (a === 'skip' || !a) return;
+      if (a === 'new') { const nm = (fd.get('n' + i) || '').trim() || r.name; db.products.push({ id: uid(), name: nm, sku: r.code || r.ean, category: '', desc: '', price: r2(r.cost * (1 + mk / 100)), cost: r.cost, stock: qty, min: 5, imgs: [], featured: false }); neu++; }
+      else { const p = prod(a.slice(2)); if (!p) return; p.stock += qty; if (uc && r.cost > 0) p.cost = r.cost; if (!p.sku && (r.code || r.ean)) p.sku = r.code || r.ean; add++; }
+    });
+    nfs.forEach(nf => { if (nf.key && !db.nfeKeys.includes(nf.key)) db.nfeKeys.push(nf.key); });
+    save(); V.produtos(); toast(`NF-e importada: ${add} somado(s) ao estoque, ${neu} produto(s) novo(s)`);
+  }, 'Importar');
+}
+
 /* ========== Clientes ========== */
 const CF = [{ k: 'name', label: 'Nome', req: 1 }, { k: 'phone', label: 'Telefone', type: 'tel', half: 1 }, { k: 'email', label: 'E-mail', type: 'email', half: 1 }, { k: 'notes', label: 'Observações', type: 'textarea' }];
 V.clientes = () => {
@@ -434,7 +481,7 @@ V.usuarios = () => {
   setMain(`<div class="tw"><table><tr><th>Nome</th><th>Usuário</th><th>Perfil</th><th class="r">Comissão</th><th></th></tr>
   ${db.users.map(u => `<tr><td><b>${esc(u.name)}</b>${u.id === cur.id ? ' <span class="tag">você</span>' : ''}</td><td>${esc(u.login)}</td><td>${u.role === 'admin' ? 'Administrador' : 'Vendedor'}</td><td class="r">${u.commission || 0}%</td>
   <td class="r"><button class="btn ghost sm" onclick="A.editUser('${u.id}')">Editar</button> ${u.id !== cur.id ? `<button class="btn bad sm" onclick="A.delUser('${u.id}')" aria-label="Excluir">✕</button>` : ''}</td></tr>`).join('')}</table></div>
-  <p class="sub">O login protege o acesso na tela, mas os dados ficam no navegador deste computador. Não é segurança contra quem tem acesso técnico à máquina.</p>`);
+  <p class="sub">${CL.enabled ? 'Os dados ficam na nuvem (Firebase) e o login é protegido pelo Firebase. Quem esquecer a senha usa "Esqueci a senha" na tela de entrada. Ao excluir um usuário, ele perde o acesso aos dados.' : 'O login protege o acesso na tela, mas os dados ficam no navegador deste computador. Não é segurança contra quem tem acesso técnico à máquina.'}</p>`);
 };
 
 /* ========== Catálogo online (admin) ========== */
@@ -616,6 +663,20 @@ const A = {
     try { db.settings.cvImg = await shrink(f, 1400); db.settings.cvMode = 'foto'; save(); V.catalogo(); } catch (e) { toast('Não consegui ler essa imagem'); }
   },
   cvPhotoRm() { A.syncForm(); db.settings.cvImg = ''; save(); V.catalogo(); },
+  nfe() {
+    openModal('Importar NF-e', '<p>Escolha o arquivo <b>XML</b> da nota fiscal de compra (o fornecedor envia por e-mail ou você baixa no portal da SEFAZ). Dá para escolher vários de uma vez.</p><label>Arquivo(s) XML<input type="file" accept=".xml,text/xml,application/xml" multiple onchange="A.nfeRead(this)"></label>', null);
+  },
+  async nfeRead(inp) {
+    const files = [...inp.files]; if (!files.length) return; const nfs = []; let bad = 0;
+    for (const f of files) { try { nfs.push(parseNfe(await f.text())); } catch (e) { bad++; } }
+    if (!nfs.length) return toast('Não consegui ler: use o XML da NF-e (não o PDF)');
+    if (bad) toast(bad + ' arquivo(s) ignorado(s): não são XML de NF-e');
+    nfeModal(nfs);
+  },
+  install() {
+    if (window.__inst) { window.__inst.prompt(); window.__inst = null; $('#instbtn').hidden = true; }
+    else openModal('Instalar no iPhone', '<p>No Safari, toque em <b>Compartilhar</b> (o quadrado com a seta) e depois em <b>Adicionar à Tela de Início</b>.</p>', null);
+  },
   syncForm() { const f = document.querySelector('#catform'); if (f) A.saveSettings(f, true); },
   saveSettings(f, quiet) {
     db.settings.pdfmsg = f.pdfmsg.value.trim() || DEF_PDFMSG; db.settings.url = f.url.value.trim(); db.settings.name = f.name.value.trim() || 'Minha loja'; db.settings.tagline = f.tagline.value.trim(); db.settings.wa = f.wa.value.replace(/\D/g, ''); db.settings.color = f.color.value; db.settings.ig = f.ig.value.trim(); db.settings.cvMode = f.cvMode.value; db.settings.cvColor = f.cvColor.value; db.settings.cvOp = +f.cvOp.value || 40; save(); if (!quiet) toast('Dados da loja salvos');
@@ -721,14 +782,16 @@ ${order.map(c => `<section class="cat"><h2 class="sec"><span>${esc(c)}</span><sm
     const s = makeSale({ items, shipping: parseFloat($('#wafrete').value) || 0, method: pay, clientId: c.id, channel: 'online', status: 'pendente', note });
     $('#wamsg').value = ''; $('#wafrete').value = ''; toast(`Pedido #${s.num} importado` + (lost.length ? ` (${lost.length} item(ns) não encontrado(s))` : ''));
   },
-  logout() { sessSet(null); cur = null; showLogin(); },
+  logout() { if (CL.enabled) { CL.signOut(); return; } sessSet(null); cur = null; showLogin(); },
   myPassword(force) {
-    openModal(force ? 'Defina uma nova senha' : 'Alterar minha senha', fieldsHtml([{ k: 'p1', label: 'Nova senha (mín. 4 caracteres)', type: 'password', req: 1 }, { k: 'p2', label: 'Repita a nova senha', type: 'password', req: 1 }]), fd => {
-      const p1 = fd.get('p1'); if (p1.length < 4) { toast('Senha muito curta'); return false; } if (p1 !== fd.get('p2')) { toast('As senhas não conferem'); return false; }
+    openModal(force ? 'Defina uma nova senha' : 'Alterar minha senha', fieldsHtml([{ k: 'p1', label: CL.enabled ? 'Nova senha (mín. 6 caracteres)' : 'Nova senha (mín. 4 caracteres)', type: 'password', req: 1 }, { k: 'p2', label: 'Repita a nova senha', type: 'password', req: 1 }]), fd => {
+      const p1 = fd.get('p1'); if (p1.length < (CL.enabled ? 6 : 4)) { toast('Senha muito curta'); return false; } if (p1 !== fd.get('p2')) { toast('As senhas não conferem'); return false; }
+      if (CL.enabled) { CL.changePassword(p1).then(() => toast('Senha alterada')).catch(er => toast(authMsg(er))); return; }
       hashPw(p1).then(h => { cur.pass = h; cur.mustChange = false; save(); toast('Senha alterada'); });
     });
   },
   editUser(id) {
+    if (CL.enabled) return editUserCloud(id);
     const u = id ? db.users.find(x => x.id === id) : { role: 'vendedor', commission: 0 };
     const F = [{ k: 'name', label: 'Nome', req: 1 }, { k: 'login', label: 'Usuário (login)', req: 1, half: 1 }, { k: 'role', label: 'Perfil', type: 'select', opts: [['vendedor', 'Vendedor'], ['admin', 'Administrador']], half: 1 }, { k: 'commission', label: 'Comissão (%)', type: 'number', half: 1 }, { k: 'newpass', label: id ? 'Nova senha (vazio = manter)' : 'Senha', type: 'password', req: !id, half: 1 }];
     formModal(id ? 'Editar usuário' : 'Novo usuário', F, u, o => {
@@ -757,9 +820,86 @@ function download(name, text, type) {
 }
 $('#file').onchange = e => {
   const f = e.target.files[0]; if (!f) return;
-  f.text().then(async t => { const d = JSON.parse(t); if (!d.products || !d.sales) throw 0; db = normalize(d); await ensureUsers(); cur = db.users.find(u => u.id === cur.id) || db.users[0]; save(); enter(cur); toast('Backup restaurado'); }).catch(() => toast('Arquivo de backup inválido')); e.target.value = '';
+  f.text().then(async t => { const d = JSON.parse(t); if (!d.products || !d.sales) throw 0; if (CL.enabled) d.users = db.users; db = normalize(d); await ensureUsers(); cur = db.users.find(u => u.id === cur.id) || db.users[0]; save(); enter(cur); toast('Backup restaurado'); }).catch(() => toast('Arquivo de backup inválido')); e.target.value = '';
 };
+/* ========== Nuvem (Firebase) ========== */
+const AUTH_MSG = { 'auth/invalid-credential': 'E-mail ou senha incorretos', 'auth/wrong-password': 'E-mail ou senha incorretos', 'auth/user-not-found': 'E-mail ou senha incorretos', 'auth/invalid-email': 'E-mail inválido', 'auth/too-many-requests': 'Muitas tentativas. Aguarde um pouco e tente de novo', 'auth/network-request-failed': 'Sem conexão com a internet', 'auth/email-already-in-use': 'Esse e-mail já está em uso', 'auth/weak-password': 'Senha fraca: use pelo menos 6 caracteres', 'auth/requires-recent-login': 'Por segurança, saia e entre de novo antes de trocar a senha', 'permission-denied': 'Já existe um administrador. Peça a ele para criar o seu acesso.' };
+const authMsg = e => AUTH_MSG[e?.code] || ('Erro: ' + (e?.code || e?.message || e));
+async function cloudLoginUi() {
+  const lf = $('#lform'), sf = $('#sform'); lf.hidden = true; sf.hidden = true; lf.reset(); sf.reset(); $('#lhint').textContent = '';
+  lf.querySelector('label').firstChild.nodeValue = 'E-mail'; lf.login.type = 'email'; $('#lforgot').hidden = false;
+  let owner = true; try { owner = await CL.ownerExists(); } catch (e) { }
+  lf.hidden = !owner; sf.hidden = owner; (owner ? lf.login : sf.name).focus();
+}
+function cloudRemote(col) {
+  if (!cur) return;
+  if (col === 'users') {
+    const me = db.users.find(u => u.id === cur.id);
+    if (!me) { toast('Seu acesso foi removido'); CL.signOut(); return; }
+    if (me.role !== cur.role) { enter(me); return; }
+    cur = me;
+  }
+  const v = (location.hash || '').slice(1);
+  if (v === 'pdv' || v === 'catalogo' || $('#modal').open || document.activeElement?.matches('input,textarea,select')) return;
+  clearTimeout(cloudRemote.t); cloudRemote.t = setTimeout(render, 150);
+}
+async function cloudMigrate(fu) {
+  let local = null; try { local = JSON.parse(localStorage.getItem(KEY)); } catch (e) { }
+  if (!local || !((local.products || []).length + (local.sales || []).length + (local.clients || []).length)) return;
+  if (!confirm('Encontrei dados salvos neste aparelho (' + (local.products || []).length + ' produtos, ' + (local.sales || []).length + ' vendas, ' + (local.clients || []).length + ' clientes). Enviar para a nuvem?')) return;
+  const old = (local.users || []).find(u => u.role === 'admin'), d = normalize(local);
+  d.users = db.users; if (old) d.sales.forEach(x => { if (x.sellerId === old.id) x.sellerId = fu.uid; });
+  db = d; save(); await CL.pushNow(); toast('Dados enviados para a nuvem');
+}
+let cloudBusy = false;
+async function afterCloudLogin(fu, first) {
+  if (cloudBusy) return; cloudBusy = true;
+  try {
+    await CL.start(() => db, { norm: d => normalize(d), onRemote: cloudRemote, toast });
+    const p = db.users.find(u => u.id === fu.uid);
+    if (!p) { loginMsg = 'Seu acesso ainda não foi liberado. Peça ao administrador para criar o seu usuário.'; await CL.signOut(); return; }
+    CL.role = p.role;
+    if (first) { await cloudMigrate(fu); save(); }
+    enter(p);
+  } finally { cloudBusy = false; }
+}
+async function cloudBoot() {
+  $('#login').hidden = false; $('#lform').hidden = true; $('#sform').hidden = true;
+  try { await CL.init(); } catch (e) { $('#lform').hidden = false; $('#lerr').textContent = 'Não consegui carregar o Firebase (sem internet?). Recarregue a página.'; return; }
+  $('#lforgot').onclick = async () => {
+    const em = $('#lform').login.value.trim(); if (!em) { $('#lerr').textContent = 'Digite seu e-mail acima e toque de novo'; return; }
+    try { await CL.resetPassword(em); $('#lerr').textContent = 'Enviamos um e-mail para redefinir a senha.'; } catch (e) { $('#lerr').textContent = authMsg(e); }
+  };
+  $('#sform').onsubmit = async e => {
+    e.preventDefault(); const f = e.target; $('#serr').textContent = '';
+    try { const u = await CL.signUpOwner(f.name.value.trim(), f.email.value.trim(), f.pass.value); await afterCloudLogin(u, true); }
+    catch (er) { $('#serr').textContent = authMsg(er); }
+  };
+  CL.onAuth(async fu => {
+    if (CL.busy) return;
+    if (!fu) { CL.stop(); db = normalize(seed()); cart = []; cur = null; showLogin(); return; }
+    if (cur && cur.id === fu.uid) return;
+    await afterCloudLogin(fu, false);
+  });
+}
+function editUserCloud(id) {
+  const u = id ? db.users.find(x => x.id === id) : { role: 'vendedor', commission: 0 };
+  const F = [{ k: 'name', label: 'Nome', req: 1 }];
+  if (!id) F.push({ k: 'email', label: 'E-mail (será o login)', type: 'email', req: 1, half: 1 }, { k: 'newpass', label: 'Senha inicial (mín. 6)', type: 'password', req: 1, half: 1 });
+  F.push({ k: 'role', label: 'Perfil', type: 'select', opts: [['vendedor', 'Vendedor'], ['admin', 'Administrador']], half: 1 }, { k: 'commission', label: 'Comissão (%)', type: 'number', half: 1 });
+  formModal(id ? 'Editar usuário' : 'Novo usuário', F, u, o => {
+    if (id && u.role === 'admin' && o.role !== 'admin' && db.users.filter(x => x.role === 'admin').length < 2) { toast('Precisa existir pelo menos um administrador'); return false; }
+    if (!id) {
+      if (o.newpass.length < 6) { toast('Senha muito curta (mín. 6)'); return false; }
+      if (db.users.some(x => (x.login || '').toLowerCase() === o.email.toLowerCase())) { toast('Esse e-mail já está cadastrado'); return false; }
+      CL.createUser(o.email, o.newpass).then(uid => { db.users.push({ id: uid, name: o.name, login: o.email, role: o.role, commission: o.commission }); save(); if (location.hash === '#usuarios') V.usuarios(); toast('Usuário criado: já pode entrar com esse e-mail e a senha inicial'); }).catch(er => toast(authMsg(er)));
+      return;
+    }
+    Object.assign(u, { name: o.name, role: o.role, commission: o.commission }); save(); V.usuarios();
+  });
+}
 (async function boot() {
+  if (CL.enabled) { cloudBoot(); return; }
   await ensureUsers();
   const u = db.users.find(x => x.id === sessGet());
   u ? enter(u) : showLogin();

@@ -4,7 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sistema de Vendas</title>
-<link rel="stylesheet" href="style.css?v=21">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0071e3">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Vendas">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="stylesheet" href="style.css?v=23">
 </head>
 <body>
 <aside class="side">
@@ -29,6 +36,7 @@
     <div class="foot-links">
       <button onclick="A.myPassword()">Minha senha</button>
       <button onclick="A.logout()">Sair</button>
+      <button id="instbtn" onclick="A.install()" hidden>Instalar app</button>
       <button onclick="A.backup()">Backup</button>
       <button onclick="A.restore()">Restaurar</button>
       <button onclick="A.reset()">Zerar dados</button>
@@ -47,13 +55,34 @@
     <div id="lerr" class="lerr" role="alert"></div>
     <div id="lhint" class="lhint"></div>
     <button class="btn" style="width:100%">Entrar</button>
+    <button type="button" class="linkbtn" id="lforgot" hidden>Esqueci a senha</button>
+  </form>
+  <form id="sform" class="card" hidden>
+    <h2>Criar administrador</h2>
+    <p class="sub">Primeiro acesso à nuvem: crie o usuário que vai gerenciar a loja.</p>
+    <label>Seu nome<input name="name" required></label>
+    <label>E-mail<input name="email" type="email" autocomplete="username" required></label>
+    <label>Senha (mín. 6 caracteres)<input name="pass" type="password" minlength="6" autocomplete="new-password" required></label>
+    <div id="serr" class="lerr" role="alert"></div>
+    <button class="btn" style="width:100%">Criar e entrar</button>
   </form>
 </div>
 <div id="receipt"></div>
 <dialog id="modal"><form method="dialog" id="mform"></form></dialog>
 <div id="toast" role="status" aria-live="polite"></div>
 <input type="file" id="file" accept="application/json" hidden>
-<script src="catalog.js?v=21"></script>
-<script src="app.js?v=21"></script>
+<script src="firebase-config.js?v=1"></script>
+<script src="cloud.js?v=1"></script>
+<script src="catalog.js?v=23"></script>
+<script src="app.js?v=23"></script>
+<script>
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(function () {});
+window.__inst = null;
+var standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+var ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); window.__inst = e; document.getElementById('instbtn').hidden = false; });
+window.addEventListener('appinstalled', function () { document.getElementById('instbtn').hidden = true; });
+if (ios && !standalone && location.protocol === 'https:') document.getElementById('instbtn').hidden = false;
+</script>
 </body>
 </html>

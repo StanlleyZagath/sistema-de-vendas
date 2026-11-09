@@ -1,0 +1,49 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function member() {
+      return signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+    function admin() {
+      return member() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // "Dono" da loja: só pode ser criado uma vez (o primeiro administrador).
+    match /meta/owner {
+      allow get: if true;
+      allow create: if signedIn() && request.resource.data.uid == request.auth.uid;
+    }
+
+    // Configurações da loja e contador de vendas.
+    match /meta/{id} {
+      allow read: if member();
+      allow write: if (id == 'counter' && member()) || (id != 'counter' && admin());
+    }
+
+    // Usuários: o primeiro administrador se cria sozinho; depois só administradores mexem.
+    match /users/{uid} {
+      allow read: if member();
+      allow create: if admin() || (
+        signedIn() && request.auth.uid == uid
+        && request.resource.data.role == 'admin'
+        && !exists(/databases/$(database)/documents/meta/owner)
+        && getAfter(/databases/$(database)/documents/meta/owner).data.uid == uid
+      );
+      allow update, delete: if admin();
+    }
+
+    // Produtos: administrador faz tudo; vendedor só baixa/devolve estoque (venda e cancelamento).
+    match /products/{id} {
+      allow read: if member();
+      allow create, delete: if admin();
+      allow update: if admin() || (member() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock']));
+    }
+
+    match /sales/{id}       { allow read, write: if member(); }
+    match /clients/{id}     { allow read, write: if member(); }
+    match /leads/{id}       { allow read, write: if member(); }
+    match /receivables/{id} { allow read, write: if member(); }
+  }
+}

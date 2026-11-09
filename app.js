@@ -22,20 +22,7 @@ const MAXIMG = 8;
 
 /* ========== Dados ========== */
 function seed() {
-  const p = (name, category, price, cost, stock, min) => ({ id: uid(), name, sku: '', category, desc: '', price, cost, stock, min, imgs: [] });
-  return {
-    seq: 0,
-    products: [
-      p('Camiseta básica', 'Roupas', 49.9, 22, 40, 10), p('Calça jeans', 'Roupas', 129.9, 60, 18, 5),
-      p('Tênis casual', 'Calçados', 199.9, 110, 3, 5), p('Boné', 'Acessórios', 39.9, 15, 25, 8),
-      p('Mochila', 'Acessórios', 159.9, 80, 9, 4), p('Meias (par)', 'Acessórios', 14.9, 5, 60, 20)
-    ],
-    clients: [{ id: uid(), name: 'Maria Souza', phone: '(11) 98888-1111', email: 'maria@email.com', notes: '' },
-      { id: uid(), name: 'João Pereira', phone: '(21) 97777-2222', email: '', notes: 'Prefere Pix' }],
-    leads: [{ id: uid(), name: 'Loja Bela Vista', company: 'Revenda', phone: '', value: 3500, stage: 'Proposta', notes: '' },
-      { id: uid(), name: 'Ana Lima', company: '', phone: '', value: 480, stage: 'Novo', notes: '' }],
-    sales: [], receivables: [], users: [], categories: [], settings: {}
-  };
+  return { seq: 0, products: [], clients: [], leads: [], sales: [], receivables: [], users: [], categories: [], settings: {} };
 }
 function normalize(d) {
   d.settings ||= {}; d.settings.name ||= 'Minha loja'; d.settings.wa ||= '';

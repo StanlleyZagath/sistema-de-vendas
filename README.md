@@ -19,7 +19,7 @@ Sistema de vendas completo que roda direto no navegador, sem servidor e sem inst
 
 1. Baixe ou clone o repositório.
 2. Abra o `index.html` no navegador.
-3. Primeiro acesso: usuário `admin`, senha `admin` (o sistema pede para trocar a senha).
+3. Primeiro acesso: usuário `admin`, senha `admin` (o sistema pede para trocar a senha). O sistema começa vazio: cadastre categorias, produtos e clientes.
 
 Ou rode um servidor local, se preferir:
 

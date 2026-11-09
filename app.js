@@ -19,6 +19,9 @@ const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
 const monthLabel = k => { const [y, m] = k.split('-').map(Number); return cap(new Date(y, m - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })); };
 const catName = c => c || 'Sem categoria';
 const MAXIMG = 8;
+const ICO_WA = '<svg viewBox="0 0 24 24"><path d="M20.5 3.5A11.8 11.8 0 0 0 12 0C5.4 0 .1 5.3.1 11.9c0 2.1.6 4.2 1.6 6L0 24l6.3-1.7a12 12 0 0 0 5.7 1.5c6.6 0 11.9-5.3 11.9-11.9 0-3.2-1.2-6.200-3.400-8.400zM12 21.800c-1.800 0-3.600-.5-5.100-1.400l-.4-.2-3.700 1 1-3.600-.2-.4a9.800 9.800 0 0 1-1.500-5.300C2.100 6.500 6.600 2.100 12 2.100c2.600 0 5.100 1 6.900 2.900a9.700 9.700 0 0 1 2.900 6.900c0 5.400-4.400 9.900-9.800 9.900zm5.400-7.400c-.3-.1-1.800-.9-2-1-.3-.1-.5-.1-.7.1l-.9 1.100c-.2.200-.3.200-.6.100a8 8 0 0 1-4-3.500c-.3-.5.300-.5.900-1.600.1-.2 0-.4 0-.5l-.9-2.100c-.2-.6-.5-.5-.7-.5h-.6c-.2 0-.5.100-.8.400s-1 1-1 2.400 1 2.800 1.200 3c.1.200 2.100 3.200 5.100 4.500 1.900.8 2.600.9 3.600.7.600-.1 1.800-.7 2-1.400.3-.7.3-1.300.2-1.400-.1-.1-.3-.2-.6-.3z"/></svg>';
+const ICO_IG = '<svg viewBox="0 0 24 24"><path d="M12 2.200c3.200 0 3.600 0 4.800.1 3.300.1 4.800 1.700 4.900 4.900.1 1.300.1 1.600.1 4.800s0 3.600-.1 4.800c-.1 3.200-1.700 4.800-4.900 4.900-1.300.1-1.600.1-4.800.1s-3.600 0-4.800-.1c-3.300-.1-4.800-1.700-4.900-4.900C2.200 15.600 2.200 15.200 2.200 12s0-3.600.1-4.800C2.400 3.900 4 2.400 7.200 2.300 8.400 2.200 8.800 2.200 12 2.200zM12 0C8.700 0 8.300 0 7.100.1 2.700.3.300 2.700.1 7.100 0 8.300 0 8.700 0 12s0 3.700.1 4.900c.2 4.400 2.600 6.800 7 7C8.300 24 8.700 24 12 24s3.700 0 4.900-.1c4.400-.2 6.800-2.600 7-7 .1-1.200.1-1.600.1-4.900s0-3.700-.1-4.900c-.2-4.400-2.600-6.800-7-7C15.700 0 15.300 0 12 0zm0 5.800a6.200 6.200 0 1 0 0 12.400 6.200 6.200 0 0 0 0-12.400zM12 16a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm6.400-11.800a1.400 1.400 0 1 0 0 2.900 1.400 1.400 0 0 0 0-2.900z"/></svg>';
+const DEF_PDFMSG = 'Olá! Tenho interesse em {produto} ({preco}). Vi no catálogo da {loja}.';
 
 /* ========== Dados ========== */
 function seed() {
@@ -26,11 +29,11 @@ function seed() {
 }
 function normalize(d) {
   d.settings ||= {}; d.settings.name ||= 'Minha loja'; d.settings.wa ||= '';
-  d.settings.tagline ??= 'Escolha seus produtos e finalize o pedido pelo WhatsApp.'; d.settings.color ||= '#0071e3';
+  d.settings.tagline ??= 'Escolha seus produtos e finalize o pedido pelo WhatsApp.'; d.settings.color ||= '#0071e3'; d.settings.url ||= ''; d.settings.pdfmsg ||= DEF_PDFMSG; d.settings.ig ||= ''; d.settings.cvMode ||= 'cor'; d.settings.cvColor ||= d.settings.color; d.settings.cvImg ||= ''; d.settings.cvOp ??= 40;
   d.receivables ||= []; d.users ||= []; d.sales ||= []; d.leads ||= []; d.clients ||= []; d.categories ||= [];
   d.products.forEach(p => {
     if (!p.imgs) p.imgs = p.img ? [p.img] : [];
-    delete p.img; p.desc ||= ''; p.category ||= '';
+    delete p.img; p.desc ||= ''; p.category ||= ''; p.featured = !!p.featured;
     if (p.category && !d.categories.includes(p.category)) d.categories.push(p.category);
   });
   return d;
@@ -182,6 +185,7 @@ V.dashboard = () => {
     <div class="card"><h3>Vendas hoje</h3><div class="kpi">${brl(sum(sToday, s => s.total))}<small>${sToday.length} venda(s)</small></div></div>
     <div class="card"><h3>Pedidos online pendentes</h3><div class="kpi">${pend}</div></div>
     <div class="card"><h3>A receber</h3><div class="kpi">${brl(sum(openDue(), r => r.amount))}<small>${brl(sum(openDue().filter(isLate), r => r.amount))} em atraso</small></div></div>
+    <div class="card"><h3>Investido em estoque</h3><div class="kpi">${brl(sum(db.products, p => Math.max(0, p.stock) * p.cost))}<small>vale ${brl(sum(db.products, p => Math.max(0, p.stock) * p.price))} na venda</small></div></div>
     <div class="card"><h3>Negócios em aberto</h3><div class="kpi">${brl(sum(open, l => l.value))}<small>${open.length} lead(s)</small></div></div>
   </div>
   <div class="grid2">
@@ -302,10 +306,16 @@ function prodTable() {
     && (!pf.st || (pf.st === 'zerado' ? p.stock <= 0 : pf.st === 'baixo' ? p.stock > 0 && p.stock <= p.min : p.stock > p.min)));
   const sorts = { name: (a, b) => a.name.localeCompare(b.name), 'price-': (a, b) => b.price - a.price, 'price+': (a, b) => a.price - b.price, margin: (a, b) => (margin(b) ?? -1) - (margin(a) ?? -1), stock: (a, b) => a.stock - b.stock };
   l = l.sort(sorts[pf.sort] || sorts.name);
-  $('#ptable').innerHTML = `<div class="tw"><table><tr><th>Produto</th><th>Categoria</th><th class="r">Custo</th><th class="r">Preço</th><th class="r">Markup</th><th class="r">Margem</th><th class="r">Estoque</th><th></th></tr>
-  ${l.map(p => `<tr><td><div style="display:flex;gap:10px;align-items:center">${p.imgs[0] ? `<img class="thumb" src="${esc(p.imgs[0])}" alt="">` : `<span class="thumb ph">${esc(p.name.charAt(0))}</span>`}<span><b>${esc(p.name)}</b>${p.imgs.length > 1 ? ` <span class="tag">${p.imgs.length} fotos</span>` : ''}<br><small>${esc(p.sku)}</small></span></div></td><td>${esc(catName(p.category))}</td><td class="r">${brl(p.cost)}</td><td class="r">${brl(p.price)}</td><td class="r">${pct(markup(p))}</td><td class="r">${pct(margin(p))}</td>
-  <td class="r"><span class="tag ${p.stock <= 0 ? 'bad' : p.stock <= p.min ? 'warn' : 'ok'}">${p.stock}</span></td>
-  <td class="r"><button class="btn ghost sm" onclick="A.photo('${p.id}')">Fotos</button> <button class="btn ghost sm" onclick="A.adjStock('${p.id}')">± Estoque</button> <button class="btn ghost sm" onclick="A.editProd('${p.id}')">Editar</button> <button class="btn bad sm" onclick="A.delProd('${p.id}')" aria-label="Excluir">✕</button></td></tr>`).join('') || '<tr><td colspan="8" class="empty">Nenhum produto encontrado</td></tr>'}</table></div>`;
+  const units = sum(l, p => Math.max(0, p.stock)), invested = sum(l, p => Math.max(0, p.stock) * p.cost), worth = sum(l, p => Math.max(0, p.stock) * p.price);
+  const filtered = pf.q || pf.cat || pf.st;
+  $('#ptable').innerHTML = `<div class="cards stock-cards">
+    <div class="card hero"><h3>Investido em estoque (custo)${filtered ? ' — seleção atual' : ''}</h3><div class="kpi">${brl(invested)}<small>${units} unidade(s) em ${l.filter(p => p.stock > 0).length} produto(s)</small></div></div>
+    <div class="card"><h3>Valor de venda do estoque</h3><div class="kpi">${brl(worth)}</div></div>
+    <div class="card"><h3>Lucro potencial</h3><div class="kpi">${brl(worth - invested)}<small>${worth ? Math.round((worth - invested) / worth * 100) : 0}% de margem</small></div></div></div>
+  <div class="tw"><table><tr><th>Produto</th><th>Categoria</th><th class="r">Custo</th><th class="r">Preço</th><th class="r">Markup</th><th class="r">Margem</th><th class="r">Estoque</th><th class="r">Investido</th><th></th></tr>
+  ${l.map(p => `<tr><td><div style="display:flex;gap:10px;align-items:center">${p.imgs[0] ? `<img class="thumb" src="${esc(p.imgs[0])}" alt="">` : `<span class="thumb ph">${esc(p.name.charAt(0))}</span>`}<span><b>${esc(p.name)}</b>${p.featured ? ' <span class="tag ok">★ destaque</span>' : ''}${p.imgs.length > 1 ? ` <span class="tag">${p.imgs.length} fotos</span>` : ''}<br><small>${esc(p.sku)}</small></span></div></td><td>${esc(catName(p.category))}</td><td class="r">${brl(p.cost)}</td><td class="r">${brl(p.price)}</td><td class="r">${pct(markup(p))}</td><td class="r">${pct(margin(p))}</td>
+  <td class="r"><span class="tag ${p.stock <= 0 ? 'bad' : p.stock <= p.min ? 'warn' : 'ok'}">${p.stock}</span></td><td class="r">${brl(Math.max(0, p.stock) * p.cost)}</td>
+  <td class="r"><button class="btn ghost sm" onclick="A.photo('${p.id}')">Fotos</button> <button class="btn ghost sm" onclick="A.adjStock('${p.id}')">± Estoque</button> <button class="btn ghost sm" onclick="A.editProd('${p.id}')">Editar</button> <button class="btn bad sm" onclick="A.delProd('${p.id}')" aria-label="Excluir">✕</button></td></tr>`).join('') || '<tr><td colspan="9" class="empty">Nenhum produto encontrado</td></tr>'}</table></div>`;
 }
 function catModal() {
   openModal('Categorias', `<form id="ncf" class="inline-add" onsubmit="return false"><input id="ncin" placeholder="Nova categoria..." maxlength="40"><button type="button" class="btn" id="ncadd">Adicionar</button></form>
@@ -347,10 +357,10 @@ function photoModal(id) {
     save(); photoModal(id); if (location.hash === '#produtos') prodTable(); if (bad) toast(`${bad} arquivo(s) não puderam ser lidos`);
   };
 }
-function shrink(file) {
+function shrink(file, max = 640) {
   return new Promise((res, rej) => {
     const img = new Image(), url = URL.createObjectURL(file);
-    img.onload = () => { const k = Math.min(1, 640 / Math.max(img.width, img.height)), c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k); const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url); res(c.toDataURL('image/jpeg', 0.8)); };
+    img.onload = () => { const k = Math.min(1, max / Math.max(img.width, img.height)), c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k); const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url); res(c.toDataURL('image/jpeg', 0.8)); };
     img.onerror = () => { URL.revokeObjectURL(url); rej(); }; img.src = url;
   });
 }
@@ -430,22 +440,33 @@ V.usuarios = () => {
 /* ========== Catálogo online (admin) ========== */
 function catalogHtml() {
   const s = db.settings;
-  const data = { name: s.name || 'Loja', wa: s.wa || '', tagline: s.tagline || '', color: s.color || '#0071e3', products: db.products.map(p => ({ id: p.id, name: p.name, cat: p.category, desc: p.desc, price: p.price, stock: p.stock, imgs: p.imgs })) };
+  const data = { name: s.name || 'Loja', wa: s.wa || '', tagline: s.tagline || '', color: s.color || '#0071e3', products: db.products.map(p => ({ id: p.id, name: p.name, cat: p.category, desc: p.desc, price: p.price, stock: p.stock, imgs: p.imgs, feat: p.featured })) };
   return CATALOG_TPL.replace('__DATA__', () => JSON.stringify(data).replace(/</g, '\\u003c'));
 }
 V.catalogo = () => {
   const s = db.settings, withPhoto = db.products.filter(p => p.imgs.length).length;
   setMain(`<div class="grid2">
-  <div class="card"><h3>1 · Dados da loja</h3><form onsubmit="A.saveSettings(this);return false">
+  <div class="card"><h3>1 · Dados da loja</h3><form id="catform" onsubmit="A.saveSettings(this);return false">
     <label>Nome da loja<input name="name" value="${esc(s.name)}" required></label>
     <label>Frase de destaque<input name="tagline" value="${esc(s.tagline)}" maxlength="90"></label>
     <div class="row"><label>WhatsApp que recebe os pedidos<input name="wa" value="${esc(s.wa)}" placeholder="5511999999999" inputmode="numeric"></label><label>Cor dos botões<input name="color" type="color" value="${esc(s.color)}" style="padding:2px;height:40px"></label></div>
     <p class="sub">WhatsApp com DDI e DDD, só números.</p>
+    <label>Link do catálogo publicado (opcional, aparece no PDF)<input name="url" type="url" value="${esc(s.url)}" placeholder="https://..."></label>
+    <label>Mensagem ao tocar num produto do PDF<textarea name="pdfmsg" rows="2">${esc(s.pdfmsg)}</textarea></label>
+    <p class="sub">Use {produto}, {preco} e {loja}: o sistema troca pelo nome, preço e nome da loja.</p>
+    <label>Instagram (@usuario ou link, aparece na capa do PDF)<input name="ig" value="${esc(s.ig)}" placeholder="@minhaloja"></label>
+    <h4 style="margin:14px 0 6px">Capa do PDF</h4>
+    <div class="row"><label>Fundo da capa<select name="cvMode" onchange="A.cvToggle(this.form)"><option value="cor" ${s.cvMode === 'cor' ? 'selected' : ''}>Cor sólida</option><option value="foto" ${s.cvMode === 'foto' ? 'selected' : ''}>Foto com transparência</option></select></label><label>Cor da capa<input name="cvColor" type="color" value="${esc(s.cvColor)}" style="padding:2px;height:40px"></label></div>
+    <div id="cvfoto" ${s.cvMode === 'foto' ? '' : 'hidden'}>
+      <label>Foto de fundo<input type="file" accept="image/*" onchange="A.cvPhoto(this)"></label>
+      ${s.cvImg ? `<div class="cvprev" style="background:${esc(s.cvColor)}"><img src="${esc(s.cvImg)}" style="opacity:${s.cvOp / 100}" alt=""></div><button type="button" class="btn ghost sm" onclick="A.cvPhotoRm()">Remover foto</button>` : '<p class="sub">Nenhuma foto escolhida.</p>'}
+      <label>Intensidade da foto: <b id="cvopv">${s.cvOp}%</b><input name="cvOp" type="range" min="10" max="100" step="5" value="${s.cvOp}" oninput="A.cvOpac(this)"></label>
+      <p class="sub">Quanto menor, mais a cor aparece por cima da foto.</p></div>
     <button class="btn">Salvar</button></form>
     <p class="sub" style="margin-top:10px">${db.products.length} produto(s), ${withPhoto} com foto. Adicione fotos e descrição em Produtos e estoque.</p></div>
   <div class="card"><h3>2 · Publicar o catálogo</h3>
-    <p>O catálogo é um arquivo único (<code>catalogo.html</code>) com seus produtos, preços e fotos.</p>
-    <div class="toolbar"><button class="btn ghost" onclick="A.previewCatalog()">Visualizar</button><button class="btn" onclick="A.downloadCatalog()">Baixar catalogo.html</button></div>
+    <p>Escolha o formato: o <b>HTML</b> é a loja com sacola, para publicar num link. O <b>PDF</b> é uma vitrine para enviar direto no WhatsApp ou imprimir (só produtos disponíveis, sem sacola).</p>
+    <div class="toolbar"><button class="btn ghost" onclick="A.previewCatalog()">Visualizar</button><button class="btn" onclick="A.downloadCatalog()">Baixar HTML</button><button class="btn" onclick="A.pdfCatalog()">Baixar PDF</button></div>
     <ol class="sub" style="padding-left:18px;margin:8px 0 0"><li>Baixe o arquivo.</li><li>Publique de graça: arraste o arquivo em <b>app.netlify.com/drop</b> (ou GitHub Pages / Cloudflare Pages).</li><li>Mande o link pelo WhatsApp e ponha na bio do Instagram.</li><li>Mudou preço ou estoque? Baixe e publique de novo.</li></ol></div></div>
   <div class="card" style="margin-top:12px"><h3>3 · Receber o pedido do WhatsApp</h3>
     <p class="sub">O cliente monta a sacola e o pedido chega no seu WhatsApp. Copie a mensagem e cole aqui: o sistema cria o pedido pendente, com cliente e entrega. Depois confirme em Vendas e pedidos.</p>
@@ -535,10 +556,11 @@ const A = {
       <div class="row"><label>Custo (R$)<input name="cost" type="number" step="any" min="0" value="${p.cost || ''}"></label><label>Preço de venda (R$)<input name="price" type="number" step="any" min="0" value="${p.price || ''}" required></label></div>
       <div class="row"><label>Markup (%)<input name="markup" type="number" step="any" min="0" value="${p.cost > 0 ? r2(mk) : ''}"></label><label>Margem de lucro (%)<input name="margin" type="number" step="any" min="0" max="100" value="${p.price > 0 ? r2(mg) : ''}"></label></div>
       <p class="sub calc">Lucro por unidade: <b id="profit">${brl(p.price - p.cost)}</b> · Markup é o lucro sobre o <b>custo</b>; margem é o lucro sobre o <b>preço</b>. Edite qualquer um dos três e os outros se ajustam.</p>
+      <label class="chk-l"><input type="checkbox" name="featured" ${p.featured ? 'checked' : ''}> Produto em destaque (aparece primeiro no catálogo e em página própria no PDF)</label>
       <div class="row"><label>Estoque<input name="stock" type="number" step="1" value="${p.stock}"></label><label>Estoque mínimo<input name="min" type="number" step="1" min="0" value="${p.min}"></label></div>`, fd => {
       let cat = fd.get('category'); if (cat === '__new') cat = (fd.get('newcat') || '').trim();
       const price = parseFloat(fd.get('price')) || 0; if (price <= 0) { toast('Informe o preço de venda'); return false; }
-      const o = { name: fd.get('name').trim(), sku: fd.get('sku').trim(), category: cat, desc: fd.get('desc').trim(), cost: parseFloat(fd.get('cost')) || 0, price, stock: parseInt(fd.get('stock')) || 0, min: parseInt(fd.get('min')) || 0 };
+      const o = { name: fd.get('name').trim(), sku: fd.get('sku').trim(), category: cat, desc: fd.get('desc').trim(), featured: fd.get('featured') === 'on', cost: parseFloat(fd.get('cost')) || 0, price, stock: parseInt(fd.get('stock')) || 0, min: parseInt(fd.get('min')) || 0 };
       ensureCat(cat); if (id) Object.assign(p, o); else db.products.push({ id: uid(), imgs: [], ...o }); save(); V.produtos();
     });
     const F = $('#mform'); let last = 'price';
@@ -587,11 +609,103 @@ const A = {
       fd => { r.paid = true; r.paidAt = dkey(new Date()); r.paidMethod = fd.get('m'); save(); V.receber(); toast('Parcela recebida'); }, 'Confirmar recebimento');
   },
   unpay(id) { if (!confirmDel('Estornar este recebimento?')) return; const r = db.receivables.find(x => x.id === id); r.paid = false; r.paidAt = ''; r.paidMethod = ''; save(); V.receber(); },
-  saveSettings(f) {
-    db.settings.name = f.name.value.trim() || 'Minha loja'; db.settings.tagline = f.tagline.value.trim(); db.settings.wa = f.wa.value.replace(/\D/g, ''); db.settings.color = f.color.value; save(); toast('Dados da loja salvos');
+  cvToggle(f) { document.getElementById('cvfoto').hidden = f.cvMode.value !== 'foto'; },
+  cvOpac(el) { document.getElementById('cvopv').textContent = el.value + '%'; const i = document.querySelector('.cvprev img'); if (i) i.style.opacity = el.value / 100; },
+  async cvPhoto(inp) {
+    const f = inp.files[0]; if (!f) return; A.syncForm();
+    try { db.settings.cvImg = await shrink(f, 1400); db.settings.cvMode = 'foto'; save(); V.catalogo(); } catch (e) { toast('Não consegui ler essa imagem'); }
   },
-  downloadCatalog() { if (!db.settings.wa) toast('Dica: configure o WhatsApp antes de publicar'); download('catalogo.html', catalogHtml(), 'text/html'); },
-  previewCatalog() { window.open(URL.createObjectURL(new Blob([catalogHtml()], { type: 'text/html' })), '_blank'); },
+  cvPhotoRm() { A.syncForm(); db.settings.cvImg = ''; save(); V.catalogo(); },
+  syncForm() { const f = document.querySelector('#catform'); if (f) A.saveSettings(f, true); },
+  saveSettings(f, quiet) {
+    db.settings.pdfmsg = f.pdfmsg.value.trim() || DEF_PDFMSG; db.settings.url = f.url.value.trim(); db.settings.name = f.name.value.trim() || 'Minha loja'; db.settings.tagline = f.tagline.value.trim(); db.settings.wa = f.wa.value.replace(/\D/g, ''); db.settings.color = f.color.value; db.settings.ig = f.ig.value.trim(); db.settings.cvMode = f.cvMode.value; db.settings.cvColor = f.cvColor.value; db.settings.cvOp = +f.cvOp.value || 40; save(); if (!quiet) toast('Dados da loja salvos');
+  },
+  downloadCatalog() { A.syncForm(); if (!db.settings.wa) toast('Dica: configure o WhatsApp antes de publicar'); download('catalogo.html', catalogHtml(), 'text/html'); },
+  pdfCatalog() {
+    A.syncForm();
+    const s = db.settings, items = db.products.filter(p => p.stock > 0);
+    if (!items.length) return toast('Nenhum produto disponível para o PDF');
+    const color = /^#[0-9a-f]{6}$/i.test(s.color) ? s.color : '#0071e3', n = parseInt(color.slice(1), 16);
+    const light = (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) > 150, txt = light ? '#111' : '#fff', ink = light ? '#1d1d1f' : color;
+    const cvc = /^#[0-9a-f]{6}$/i.test(s.cvColor) ? s.cvColor : color, cn = parseInt(cvc.slice(1), 16), cphoto = s.cvMode === 'foto' && s.cvImg, clight = (0.299 * (cn >> 16) + 0.587 * ((cn >> 8) & 255) + 0.114 * (cn & 255)) > 150, ctxt = clight ? '#111' : '#fff';
+    const igUser = (s.ig || '').trim().replace(/^https?:\/\/(www\.)?instagram\.com\//i, '').replace(/^@/, '').split(/[/?#]/)[0].replace(/[^\w.]/g, ''), igLink = igUser ? 'https://instagram.com/' + igUser : '';
+    const urlLink = /^https?:\/\//i.test(s.url || '') ? s.url : (s.url ? 'https://' + s.url : '');
+    const digits = s.wa || '', wa = digits.replace(/^55(\d{2})(\d{4,5})(\d{4})$/, '($1) $2-$3');
+    const msg = p => (s.pdfmsg || DEF_PDFMSG).replace(/\{produto\}/g, p.name).replace(/\{preco\}/g, brl(p.price)).replace(/\{loja\}/g, s.name);
+    const link = p => digits ? 'https://wa.me/' + digits + '?text=' + encodeURIComponent(msg(p)) : '';
+    const wrap = (p, cls, inner) => { const h = link(p); return h ? `<a class="${cls}" href="${esc(h)}" target="_blank" rel="noopener">${inner}</a>` : `<div class="${cls}">${inner}</div>`; };
+    const pic = p => `<div class="im">${p.imgs[0] ? `<img src="${esc(p.imgs[0])}" alt="">` : `<span>${esc(p.name.charAt(0))}</span>`}${p.featured ? '<i class="st">★ Destaque</i>' : ''}</div>`;
+    const small = p => wrap(p, 'p', `${pic(p)}<div class="b"><h3>${esc(p.name)}</h3>${p.desc ? `<p class="d">${esc(p.desc)}</p>` : ''}<div class="pr">${brl(p.price)}</div>${digits ? '<div class="cta">Pedir no WhatsApp &rsaquo;</div>' : ''}</div>`);
+    const big = p => wrap(p, 'f', `${pic(p)}<div class="b"><h3>${esc(p.name)}</h3>${p.desc ? `<p class="d">${esc(p.desc)}</p>` : ''}<div class="pr">${brl(p.price)}</div>${digits ? '<div class="btn">Pedir no WhatsApp &rsaquo;</div>' : ''}</div>`);
+    const feats = items.filter(p => p.featured).slice(0, 6);
+    const groups = {}; items.forEach(p => (groups[p.category || 'Outros'] ||= []).push(p));
+    const order = [...new Set([...db.categories, ...Object.keys(groups)])].filter(c => groups[c]);
+    const month = cap(new Date().toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }));
+    const css = String(s.name).replace(/["\\\n\r]/g, ' ');
+    const hello = digits ? 'https://wa.me/' + digits + '?text=' + encodeURIComponent(`Olá! Vi o catálogo da ${s.name} e gostaria de mais informações.`) : '';
+    const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Catálogo - ${esc(s.name)}</title><style>
+@page{size:A4;margin:14mm 12mm 18mm;@bottom-left{content:"${css}";font:9px Arial,sans-serif;color:#8e8e93}@bottom-right{content:"Página " counter(page);font:9px Arial,sans-serif;color:#8e8e93}}
+@page :first{margin:0;@bottom-left{content:none}@bottom-right{content:none}}
+*{box-sizing:border-box}
+html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+body{margin:0;background:#e5e5ea;font:12px/1.45 "Segoe UI",Arial,sans-serif;color:#1d1d1f}
+a{color:inherit;text-decoration:none}
+.bar{position:sticky;top:0;z-index:5;background:#fff8d6;border-bottom:1px solid #e6d98a;padding:10px 16px;font-size:13px;display:flex;gap:12px;align-items:center;justify-content:space-between}
+.bar button{border:0;background:#1d1d1f;color:#fff;border-radius:8px;padding:8px 14px;font:inherit;cursor:pointer;white-space:nowrap}
+.doc{width:210mm;margin:14px auto;background:#fff;box-shadow:0 4px 24px rgba(0,0,0,.15)}
+.cover{height:296.5mm;position:relative;background:${cvc};color:${ctxt};padding:30mm 22mm 24mm;display:flex;flex-direction:column;justify-content:space-between;break-after:page;page-break-after:always;overflow:hidden}
+.cover>*{position:relative;z-index:1}
+.cover>.bg{position:absolute;inset:0;z-index:0;width:100%;height:100%;object-fit:cover;opacity:${(s.cvOp ?? 40) / 100}}
+.cover a.l{text-decoration:underline;text-underline-offset:2px}
+.cover .k{margin:0 0 10mm;font-size:13px;letter-spacing:.18em;text-transform:uppercase;opacity:.85}
+.cover h1{margin:0;font-size:58px;line-height:1.02;letter-spacing:-.03em;font-weight:700}
+.cover .tg{margin:8mm 0 0;font-size:20px;line-height:1.35;max-width:130mm;opacity:.92}
+.cover .ct{font-size:13px;line-height:1.9}
+.cover .ct b{display:block;font-size:11px;letter-spacing:.14em;text-transform:uppercase;opacity:.8;font-weight:600}
+.cover .bts{display:flex;flex-wrap:wrap;gap:10px;margin:6mm 0 5mm}
+.cover .wb svg{width:18px;height:18px;vertical-align:-4px;margin-right:8px;fill:currentColor}
+.cover .wb{display:inline-block;margin:0;background:${clight ? '#111' : '#fff'};color:${clight ? '#fff' : '#111'};padding:12px 22px;border-radius:99px;font-size:14px;font-weight:600}
+.cover .hint{font-size:11px;opacity:.8}
+.body{padding:14mm 12mm 16mm}
+.sec{display:flex;align-items:baseline;justify-content:space-between;margin:0 0 5mm;padding:0 0 2.5mm;border-bottom:2px solid ${ink};font-size:19px;letter-spacing:-.01em;break-after:avoid;page-break-after:avoid}
+.sec small{font-size:11px;color:#6e6e73;font-weight:400}
+.feat{break-after:page;page-break-after:always;margin-bottom:8mm}
+.cat{margin-bottom:9mm}
+.g,.fg{font-size:0}
+.p,.f{display:inline-block;vertical-align:top;background:#fff;border:1px solid #e3e3e8;border-radius:11px;overflow:hidden;font-size:12px;break-inside:avoid;page-break-inside:avoid}
+.p{width:calc((100% - 12mm)/3);margin:0 6mm 6mm 0}
+.p:nth-child(3n){margin-right:0}
+.f{width:calc((100% - 8mm)/2);margin:0 8mm 8mm 0}
+.f:nth-child(2n){margin-right:0}
+.im{position:relative;width:100%;aspect-ratio:1;background:#f5f5f7;display:flex;align-items:center;justify-content:center;font-size:40px;color:#c7c7cc}
+.f .im{aspect-ratio:4/3}
+.im img{width:100%;height:100%;object-fit:contain;padding:8px}
+.st{position:absolute;top:7px;left:7px;font-style:normal;font-size:9.5px;font-weight:700;background:${ink};color:${ink === color ? txt : '#fff'};padding:3px 8px;border-radius:99px}
+.b{padding:9px 11px 12px}
+.b h3{margin:0;font-size:13px;line-height:1.3}
+.f .b h3{font-size:17px}
+.d{margin:3px 0 0;color:#6e6e73;font-size:10.5px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.f .d{font-size:12px;-webkit-line-clamp:5}
+.pr{margin-top:7px;font-weight:700;font-size:15px;color:${ink}}
+.f .pr{font-size:22px;margin-top:9px}
+.cta{margin-top:5px;font-size:10px;color:#1a9d4a;font-weight:600}
+.btn{margin-top:10px;display:inline-block;background:#1a9d4a;color:#fff;padding:8px 16px;border-radius:99px;font-size:12px;font-weight:600}
+.ft{margin-top:6mm;padding-top:4mm;border-top:1px solid #e3e3e8;font-size:10.5px;color:#6e6e73;text-align:center;break-inside:avoid}
+@media print{body{background:#fff}.bar{display:none}.doc{width:auto;margin:0;box-shadow:none}.body{padding:0}}
+</style></head><body>
+<div class="bar"><span>Na janela de impressão, escolha <b>Salvar como PDF</b> como destino.${digits ? ' Os produtos viram links para o seu WhatsApp.' : ''}</span><button onclick="window.print()">Imprimir / Salvar PDF</button></div>
+<div class="doc">
+<section class="cover">${cphoto ? `<img class="bg" src="${esc(s.cvImg)}" alt="">` : ''}<div><p class="k">Catálogo · ${esc(month)}</p><h1>${esc(s.name)}</h1>${s.tagline ? `<p class="tg">${esc(s.tagline)}</p>` : ''}</div>
+<div class="ct">${wa ? `<b>WhatsApp</b>${esc(wa)}<br>` : ''}${urlLink ? `<b>Loja online</b><a class="l" href="${esc(urlLink)}" target="_blank" rel="noopener">${esc(s.url)}</a><br>` : ''}${hello || igLink ? `<div class="bts">${hello ? `<a class="wb wa" href="${esc(hello)}" target="_blank" rel="noopener">${ICO_WA}Falar no WhatsApp</a>` : ''}${igLink ? `<a class="wb ig" href="${esc(igLink)}" target="_blank" rel="noopener">${ICO_IG}@${esc(igUser)}</a>` : ''}</div>` : ''}${digits ? '<span class="hint">Toque em qualquer produto para pedir pelo WhatsApp.</span>' : ''}</div></section>
+<div class="body">
+${feats.length ? `<section class="feat"><h2 class="sec"><span>★ Destaques</span><small>${feats.length} ${feats.length === 1 ? 'produto' : 'produtos'}</small></h2><div class="fg">${feats.map(big).join('')}</div></section>` : ''}
+${order.map(c => `<section class="cat"><h2 class="sec"><span>${esc(c)}</span><small>${groups[c].length} ${groups[c].length === 1 ? 'produto' : 'produtos'}</small></h2><div class="g">${groups[c].map(small).join('')}</div></section>`).join('')}
+<div class="ft">Preços e disponibilidade em ${new Date().toLocaleDateString('pt-BR')}, sujeitos a alteração.${wa ? ` Peça pelo WhatsApp ${esc(wa)}.` : ''}</div></div></div>
+<script>window.addEventListener('load',function(){setTimeout(function(){window.print()},600)})</script></body></html>`;
+    const w = window.open(URL.createObjectURL(new Blob([html], { type: 'text/html' })), '_blank');
+    if (!w) toast('O navegador bloqueou a janela. Permita pop-ups para este site e tente de novo.');
+  },
+  previewCatalog() { A.syncForm(); window.open(URL.createObjectURL(new Blob([catalogHtml()], { type: 'text/html' })), '_blank'); },
   importWa() {
     const t = $('#wamsg').value, m = t.match(/\[\[PED ([^\]]+)\]\]/);
     if (!m) return toast('Mensagem não reconhecida: cole o pedido completo, com a linha [[PED ...]]');

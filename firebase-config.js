@@ -12,4 +12,11 @@
      appId: "..."
    };
 */
-window.FIREBASE_CONFIG = null;
+window.FIREBASE_CONFIG = {
+  apiKey: "AIzaSyCL0cv4EKFlkuPs9SMBL4BWPqvOm1ae_pQ",
+  authDomain: "sistema-vendas-loja-60a6f.firebaseapp.com",
+  projectId: "sistema-vendas-loja-60a6f",
+  storageBucket: "sistema-vendas-loja-60a6f.firebasestorage.app",
+  messagingSenderId: "403750600449",
+  appId: "1:403750600449:web:06094aab296877a732a500"
+};

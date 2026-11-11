@@ -34,6 +34,8 @@ function normalize(d) {
   d.products.forEach(p => {
     if (!p.imgs) p.imgs = p.img ? [p.img] : [];
     delete p.img; p.desc ||= ''; p.category ||= ''; p.featured = !!p.featured;
+    p.variants = Array.isArray(p.variants) ? p.variants.filter(v => v && v.id) : [];
+    p.variants.forEach(v => { v.size ||= ''; v.color ||= ''; v.stock = parseInt(v.stock) || 0; }); syncStock(p);
     if (p.category && !d.categories.includes(p.category)) d.categories.push(p.category);
   });
   return d;
@@ -43,7 +45,21 @@ const CL = window.CLOUD || { enabled: false };
 let db = CL.enabled ? normalize(seed()) : load();
 function save() { if (CL.enabled) { CL.schedulePush(); return; } try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) { toast('Não foi possível salvar (espaço cheio? tente fotos menores ou faça backup)'); } }
 const prod = id => db.products.find(p => p.id === id);
-const client = id => db.clients.find(c => c.id === id);
+/* Variações (tamanho e cor): cada uma tem estoque próprio; p.stock é sempre a soma delas. */
+const vlabel = v => [v.size, v.color].filter(Boolean).join(' · ') || 'Sem variação';
+const hasVar = p => !!(p && p.variants && p.variants.length);
+const variant = (p, vid) => hasVar(p) ? p.variants.find(v => v.id === vid) : null;
+const syncStock = p => { if (hasVar(p)) p.stock = p.variants.reduce((s, v) => s + (v.stock || 0), 0); };
+const bareVar = p => p.variants.find(x => !x.size && !x.color);
+function stockOf(p, vid) { return hasVar(p) ? (variant(p, vid) || bareVar(p))?.stock ?? 0 : p.stock; }
+function moveStock(p, vid, d) {
+  if (hasVar(p)) {
+    let v = variant(p, vid) || bareVar(p);
+    if (!v) { v = { id: uid(), size: '', color: '', stock: 0 }; p.variants.push(v); }
+    v.stock = (v.stock || 0) + d; syncStock(p);
+  } else p.stock += d;
+}
+const client =id => db.clients.find(c => c.id === id);
 const done = () => db.sales.filter(s => s.status === 'concluída');
 const ensureCat = c => { if (c && !db.categories.includes(c)) db.categories.push(c); };
 const markup = p => p.cost > 0 ? (p.price - p.cost) / p.cost * 100 : null;
@@ -54,7 +70,7 @@ function makeSale({ items, discount = 0, discountPct = 0, shipping = 0, method, 
   const subtotal = r2(items.reduce((s, i) => s + i.price * i.qty, 0));
   discount = r2(Math.max(0, Math.min(discount, subtotal))); shipping = r2(Math.max(0, shipping || 0));
   const sale = { note, id: uid(), num: ++db.seq, date: new Date().toISOString(), items, subtotal, discount, discountPct, shipping, total: r2(subtotal - discount + shipping), received, change, method, clientId, channel, status, sellerId: cur?.id || '' };
-  if (status === 'concluída') items.forEach(i => { const p = prod(i.pid); if (p) p.stock -= i.qty; });
+  if (status === 'concluída') items.forEach(i => { const p = prod(i.pid); if (p) moveStock(p, i.vid, -i.qty); });
   if (method === FIADO && status === 'concluída') {
     const n = Math.max(1, Math.min(24, installments | 0)), cents = Math.round(sale.total * 100), base = Math.floor(cents / n);
     for (let k = 0; k < n; k++) db.receivables.push({ id: uid(), saleId: sale.id, clientId, num: k + 1, of: n, due: addMonths(firstDue, k), amount: (k === n - 1 ? cents - base * (n - 1) : base) / 100, paid: false, paidAt: '', paidMethod: '' });
@@ -83,6 +99,7 @@ function sessSet(v) { try { v ? sessionStorage.setItem('vendas_user', v) : sessi
 let loginMsg = '';
 function showLogin() {
   cur = null; $('#login').hidden = false; $('#lerr').textContent = loginMsg; loginMsg = '';
+  $('#tabbar').hidden = true; $('#more').hidden = true;
   if (CL.enabled) { cloudLoginUi(); return; }
   const a = db.users.find(u => u.mustChange);
   $('#lhint').textContent = a ? `Primeiro acesso: usuário "${a.login}", senha "admin". Troque a senha depois de entrar.` : '';
@@ -102,8 +119,53 @@ function enter(u) {
   document.querySelectorAll('.nav-h[data-admin]').forEach(h => { h.hidden = !isAdmin(); });
   document.querySelectorAll('.side-foot button[onclick*="backup"],.side-foot button[onclick*="restore"],.side-foot button[onclick*="reset"]').forEach(b => { b.hidden = !isAdmin(); });
   if (!location.hash || (!isAdmin() && ADMIN_ONLY.includes(location.hash.slice(1)))) location.hash = isAdmin() ? '#dashboard' : '#pdv';
-  render(); if (u.mustChange) A.myPassword(true);
+  buildTabbar(); render(); if (u.mustChange) A.myPassword(true);
 }
+
+/* ========== Barra de abas (celular) ========== */
+const TAB_ICO = {
+  dashboard: '<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>',
+  pdv: '<circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M2 3h3l2.7 12.4a1 1 0 0 0 1 .8h8.8a1 1 0 0 0 1-.8L20 7H6"/>',
+  vendas: '<path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/>',
+  produtos: '<path d="M21 8l-9-5-9 5v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/>',
+  receber: '<rect x="2" y="6" width="20" height="13" rx="2"/><path d="M2 10h20M16 15h2"/>',
+  clientes: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/>',
+  funil: '<path d="M3 4h18l-7 8v6l-4 2v-8z"/>',
+  relatorios: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+  catalogo: '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/>',
+  usuarios: '<circle cx="9" cy="8" r="3.5"/><path d="M2 20c0-3.5 3-5.5 7-5.5s7 2 7 5.5"/><path d="M17 4.5a3.5 3.5 0 0 1 0 7M19 15c2 .7 3 2.3 3 5"/>',
+  posts: '<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/>',
+  mais: '<circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/>'
+};
+const TAB_LAB = { dashboard: 'Painel', pdv: 'Caixa', vendas: 'Vendas', produtos: 'Produtos', receber: 'A receber', clientes: 'Clientes', mais: 'Mais' };
+const tabsFor = () => isAdmin() ? ['dashboard', 'pdv', 'vendas', 'produtos'] : ['pdv', 'vendas', 'receber', 'clientes'];
+function buildTabbar() {
+  const tb = $('#tabbar'); if (!tb) return;
+  tb.innerHTML = [...tabsFor(), 'mais'].map(k => `<a ${k === 'mais' ? 'href="#" data-more="1"' : `href="#${k}"`} data-t="${k}"><svg viewBox="0 0 24 24" aria-hidden="true" ${k === 'mais' ? 'fill="currentColor" stroke="none"' : 'fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"'}>${TAB_ICO[k]}</svg><span>${TAB_LAB[k]}</span></a>`).join('');
+  tb.hidden = false; markTabs();
+}
+function markTabs(v) {
+  v = v || (location.hash || '').slice(1);
+  const main = tabsFor();
+  document.querySelectorAll('#tabbar a').forEach(a => a.classList.toggle('on', a.dataset.t === 'mais' ? !main.includes(v) : a.dataset.t === v));
+}
+function moreClose() { $('#more').hidden = true; }
+function moreOpen() {
+  const sheet = document.querySelector('#more .more-sheet'), main = tabsFor();
+  const links = [...document.querySelectorAll('#nav a')].filter(a => !a.hidden && !main.includes(a.dataset.v));
+  sheet.innerHTML = `<div class="more-grip"></div><div class="more-who"></div><div class="more-grid">${links.map(a => `<a href="#${a.dataset.v}" data-t="${a.dataset.v}"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${TAB_ICO[a.dataset.v] || '<circle cx="12" cy="12" r="8"/>'}</svg><span>${esc(a.textContent)}</span></a>`).join('')}</div><div class="more-acts"></div>`;
+  sheet.querySelector('.more-who').textContent = $('#who').textContent;
+  const acts = sheet.querySelector('.more-acts');
+  document.querySelectorAll('.side-foot .foot-links button').forEach(b => { if (!b.hidden) { const c = b.cloneNode(true); c.hidden = false; acts.appendChild(c); } });
+  $('#more').hidden = false;
+}
+document.addEventListener('click', e => {
+  const more = e.target.closest('#tabbar a[data-more]');
+  if (more) { e.preventDefault(); $('#more').hidden ? moreOpen() : moreClose(); return; }
+  if (e.target.closest('#more .more-bg') || e.target.closest('#more a') || e.target.closest('#more .more-acts button')) moreClose();
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') moreClose(); });
+window.addEventListener('hashchange', () => { moreClose(); markTabs(); });
 
 /* ========== UI helpers ========== */
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('on'), 2800); }
@@ -140,6 +202,7 @@ const catOptions = (sel, all) => (all ? `<option value="">${all}</option>` : '')
 /* ========== Roteamento ========== */
 const V = {};
 const TITLES = { dashboard: 'Painel', pdv: 'PDV — Caixa', vendas: 'Vendas e pedidos', receber: 'Contas a receber', produtos: 'Produtos e estoque', clientes: 'Clientes', funil: 'Funil de vendas (CRM)', relatorios: 'Relatórios', usuarios: 'Usuários', catalogo: 'Catálogo online' };
+if (window.registerViews) window.registerViews(V, TITLES);   // telas extras (posts.js)
 function render() {
   if (!cur) return;
   let v = (location.hash || '#dashboard').slice(1);
@@ -230,7 +293,7 @@ function cartBar() {
 function pdvList() {
   const q = ($('#q').value || '').toLowerCase(), c = $('#pcat').value;
   const l = db.products.filter(p => (!c || p.category === c) && [p.name, p.sku, p.category].join(' ').toLowerCase().includes(q));
-  $('#plist').innerHTML = l.length ? l.map(p => `<button class="prod" ${p.stock <= 0 ? 'disabled' : ''} onclick="A.addCart('${p.id}')">${p.imgs[0] ? `<img class="pimg" src="${esc(p.imgs[0])}" alt="">` : ''}<b>${esc(p.name)}</b><span>${esc(catName(p.category))} · ${p.stock} un.</span><div class="pr">${brl(p.price)}</div></button>`).join('') : '<div class="empty">Nenhum produto encontrado.</div>';
+  $('#plist').innerHTML = l.length ? l.map(p => `<button class="prod" ${p.stock <= 0 ? 'disabled' : ''} onclick="A.addCart('${p.id}')">${p.imgs[0] ? `<img class="pimg" src="${esc(p.imgs[0])}" alt="">` : ''}<b>${esc(p.name)}</b><span>${esc(catName(p.category))} · ${p.stock} un.${hasVar(p) ? ` · ${p.variants.length} variações` : ''}</span><div class="pr">${brl(p.price)}</div></button>`).join('') : '<div class="empty">Nenhum produto encontrado.</div>';
 }
 const cartSubtotal = () => r2(cart.reduce((s, i) => s + (prod(i.pid)?.price || 0) * i.qty, 0));
 const pdvDisc = () => r2(cartSubtotal() * pdvPct / 100);
@@ -250,7 +313,7 @@ function cashCalc() {
   else { out.textContent = 'Troco ' + brl(rec - total); out.classList.add('ok'); }
 }
 function pdvCart() {
-  $('#cartl').innerHTML = cart.length ? cart.map(i => { const p = prod(i.pid); return `<div class="line"><div class="n"><b>${esc(p.name)}</b><br><small>${brl(p.price)}</small></div><div class="q"><button onclick="A.qty('${i.pid}',-1)" aria-label="Diminuir">−</button><b>${i.qty}</b><button onclick="A.qty('${i.pid}',1)" aria-label="Aumentar">+</button></div><b>${brl(p.price * i.qty)}</b></div>`; }).join('') : '<div class="empty">Carrinho vazio</div>';
+  $('#cartl').innerHTML = cart.length ? cart.map(i => { const p = prod(i.pid), v = variant(p, i.vid); return `<div class="line"><div class="n"><b>${esc(p.name)}</b><br><small>${v ? esc(vlabel(v)) + ' · ' : ''}${brl(p.price)}</small></div><div class="q"><button onclick="A.qty('${i.pid}','${i.vid || ''}',-1)" aria-label="Diminuir">−</button><b>${i.qty}</b><button onclick="A.qty('${i.pid}','${i.vid || ''}',1)" aria-label="Aumentar">+</button></div><b>${brl(p.price * i.qty)}</b></div>`; }).join('') : '<div class="empty">Carrinho vazio</div>';
   pdvTotals();
 }
 
@@ -318,7 +381,7 @@ function prodTable() {
     <div class="card"><h3>Valor de venda do estoque</h3><div class="kpi">${brl(worth)}</div></div>
     <div class="card"><h3>Lucro potencial</h3><div class="kpi">${brl(worth - invested)}<small>${worth ? Math.round((worth - invested) / worth * 100) : 0}% de margem</small></div></div></div>
   <div class="tw"><table><tr><th>Produto</th><th>Categoria</th><th class="r">Custo</th><th class="r">Preço</th><th class="r">Markup</th><th class="r">Margem</th><th class="r">Estoque</th><th class="r">Investido</th><th></th></tr>
-  ${l.map(p => `<tr><td><div style="display:flex;gap:10px;align-items:center">${p.imgs[0] ? `<img class="thumb" src="${esc(p.imgs[0])}" alt="">` : `<span class="thumb ph">${esc(p.name.charAt(0))}</span>`}<span><b>${esc(p.name)}</b>${p.featured ? ' <span class="tag ok">★ destaque</span>' : ''}${p.imgs.length > 1 ? ` <span class="tag">${p.imgs.length} fotos</span>` : ''}<br><small>${esc(p.sku)}</small></span></div></td><td>${esc(catName(p.category))}</td><td class="r">${brl(p.cost)}</td><td class="r">${brl(p.price)}</td><td class="r">${pct(markup(p))}</td><td class="r">${pct(margin(p))}</td>
+  ${l.map(p => `<tr><td><div style="display:flex;gap:10px;align-items:center">${p.imgs[0] ? `<img class="thumb" src="${esc(p.imgs[0])}" alt="">` : `<span class="thumb ph">${esc(p.name.charAt(0))}</span>`}<span><b>${esc(p.name)}</b>${p.featured ? ' <span class="tag ok">★ destaque</span>' : ''}${p.imgs.length > 1 ? ` <span class="tag">${p.imgs.length} fotos</span>` : ''}<br><small>${esc(p.sku)}</small>${hasVar(p) ? `<br><small class="vlist">${p.variants.map(v => `${esc(vlabel(v))}: <b>${v.stock}</b>`).join(' · ')}</small>` : ''}</span></div></td><td>${esc(catName(p.category))}</td><td class="r">${brl(p.cost)}</td><td class="r">${brl(p.price)}</td><td class="r">${pct(markup(p))}</td><td class="r">${pct(margin(p))}</td>
   <td class="r"><span class="tag ${p.stock <= 0 ? 'bad' : p.stock <= p.min ? 'warn' : 'ok'}">${p.stock}</span></td><td class="r">${brl(Math.max(0, p.stock) * p.cost)}</td>
   <td class="r"><button class="btn ghost sm" onclick="A.photo('${p.id}')">Fotos</button> <button class="btn ghost sm" onclick="A.adjStock('${p.id}')">± Estoque</button> <button class="btn ghost sm" onclick="A.editProd('${p.id}')">Editar</button> <button class="btn bad sm" onclick="A.delProd('${p.id}')" aria-label="Excluir">✕</button></td></tr>`).join('') || '<tr><td colspan="9" class="empty">Nenhum produto encontrado</td></tr>'}</table></div>`;
 }
@@ -405,7 +468,7 @@ function nfeModal(nfs) {
       const a = fd.get('a' + i), qty = parseInt(fd.get('q' + i)) || 0;
       if (a === 'skip' || !a) return;
       if (a === 'new') { const nm = (fd.get('n' + i) || '').trim() || r.name; db.products.push({ id: uid(), name: nm, sku: r.code || r.ean, category: '', desc: '', price: r2(r.cost * (1 + mk / 100)), cost: r.cost, stock: qty, min: 5, imgs: [], featured: false }); neu++; }
-      else { const p = prod(a.slice(2)); if (!p) return; p.stock += qty; if (uc && r.cost > 0) p.cost = r.cost; if (!p.sku && (r.code || r.ean)) p.sku = r.code || r.ean; add++; }
+      else { const p = prod(a.slice(2)); if (!p) return; moveStock(p, '', qty); if (uc && r.cost > 0) p.cost = r.cost; if (!p.sku && (r.code || r.ean)) p.sku = r.code || r.ean; add++; }
     });
     nfs.forEach(nf => { if (nf.key && !db.nfeKeys.includes(nf.key)) db.nfeKeys.push(nf.key); });
     save(); V.produtos(); toast(`NF-e importada: ${add} somado(s) ao estoque, ${neu} produto(s) novo(s)`);
@@ -487,7 +550,7 @@ V.usuarios = () => {
 /* ========== Catálogo online (admin) ========== */
 function catalogHtml() {
   const s = db.settings;
-  const data = { name: s.name || 'Loja', wa: s.wa || '', tagline: s.tagline || '', color: s.color || '#0071e3', products: db.products.map(p => ({ id: p.id, name: p.name, cat: p.category, desc: p.desc, price: p.price, stock: p.stock, imgs: p.imgs, feat: p.featured })) };
+  const data = { name: s.name || 'Loja', wa: s.wa || '', tagline: s.tagline || '', color: s.color || '#0071e3', products: db.products.map(p => ({ id: p.id, name: p.name, cat: p.category, desc: p.desc, price: p.price, stock: p.stock, imgs: p.imgs, feat: p.featured, vars: hasVar(p) ? p.variants.map(v => ({ id: v.id, s: v.size, c: v.color, q: v.stock })) : [] })) };
   return CATALOG_TPL.replace('__DATA__', () => JSON.stringify(data).replace(/</g, '\\u003c'));
 }
 V.catalogo = () => {
@@ -522,16 +585,21 @@ V.catalogo = () => {
 };
 
 /* ========== Ações ========== */
-const toItems = c => c.map(i => { const p = prod(i.pid); return { pid: p.id, name: p.name, price: p.price, cost: p.cost, qty: i.qty }; });
-function bump(c, pid, d, refresh) {
-  const i = c.find(x => x.pid === pid), p = prod(pid);
-  if (!i) { if (p.stock > 0) c.push({ pid, qty: 1 }); }
-  else { const n = i.qty + d; if (n <= 0) c.splice(c.indexOf(i), 1); else if (n > p.stock) toast(`Só há ${p.stock} em estoque`); else i.qty = n; }
+const toItems = c => c.map(i => { const p = prod(i.pid), v = variant(p, i.vid); return { pid: p.id, vid: v?.id || '', name: v ? `${p.name} (${vlabel(v)})` : p.name, price: p.price, cost: p.cost, qty: i.qty }; });
+function bump(c, pid, vid, d, refresh) {
+  vid = vid || '';
+  const i = c.find(x => x.pid === pid && (x.vid || '') === vid), p = prod(pid), st = stockOf(p, vid);
+  if (!i) { if (st > 0) c.push({ pid, vid, qty: 1 }); else toast('Sem estoque dessa opção'); }
+  else { const n = i.qty + d; if (n <= 0) c.splice(c.indexOf(i), 1); else if (n > st) toast(`Só há ${st} em estoque`); else i.qty = n; }
   refresh();
 }
+function pickVariant(id) {
+  const p = prod(id);
+  openModal(`${p.name} — escolha tamanho e cor`, p.variants.map(v => `<div class="line"><span class="n"><b>${esc(vlabel(v))}</b><br><small>${v.stock > 0 ? v.stock + ' em estoque' : 'sem estoque'}</small></span><button type="button" class="btn ${v.stock > 0 ? '' : 'ghost'} sm" ${v.stock > 0 ? '' : 'disabled'} onclick="A.addCart('${id}','${v.id}');$('#modal').close()">Adicionar</button></div>`).join(''), null);
+}
 const A = {
-  addCart: id => bump(cart, id, 1, pdvCart),
-  qty: (id, d) => bump(cart, id, d, pdvCart),
+  addCart(id, vid) { if (vid === undefined && hasVar(prod(id))) return pickVariant(id); bump(cart, id, vid, 1, pdvCart); },
+  qty: (id, vid, d) => bump(cart, id, vid, d, pdvCart),
   clearCart: () => { cart = []; pdvPct = 0; pdvShip = 0; V.pdv(); },
   checkout() {
     if (!cart.length) return toast('Carrinho vazio');
@@ -570,15 +638,15 @@ const A = {
   },
   confirmSale(id) {
     const s = db.sales.find(x => x.id === id);
-    const bad = s.items.find(i => (prod(i.pid)?.stock ?? 0) < i.qty);
+    const bad = s.items.find(i => { const p = prod(i.pid); return !p || stockOf(p, i.vid) < i.qty; });
     if (bad) return toast(`Estoque insuficiente de "${bad.name}"`);
-    s.items.forEach(i => { prod(i.pid).stock -= i.qty; }); s.status = 'concluída'; save(); V.vendas(); toast('Pedido confirmado e estoque baixado');
+    s.items.forEach(i => moveStock(prod(i.pid), i.vid, -i.qty)); s.status = 'concluída'; save(); V.vendas(); toast('Pedido confirmado e estoque baixado');
   },
   cancelSale(id) {
     const s = db.sales.find(x => x.id === id);
     const paid = db.receivables.filter(r => r.saleId === id && r.paid).length;
     if (!confirmDel(`Cancelar a venda #${s.num}?` + (s.status === 'concluída' ? ' O estoque será devolvido.' : '') + (paid ? ` Atenção: ${paid} parcela(s) já paga(s) — devolva o valor ao cliente.` : ''))) return;
-    if (s.status === 'concluída') s.items.forEach(i => { const p = prod(i.pid); if (p) p.stock += i.qty; });
+    if (s.status === 'concluída') s.items.forEach(i => { const p = prod(i.pid); if (p) moveStock(p, i.vid, i.qty); });
     db.receivables = db.receivables.filter(r => r.saleId !== id);
     s.status = 'cancelada'; save(); V.vendas();
   },
@@ -604,10 +672,24 @@ const A = {
       <div class="row"><label>Markup (%)<input name="markup" type="number" step="any" min="0" value="${p.cost > 0 ? r2(mk) : ''}"></label><label>Margem de lucro (%)<input name="margin" type="number" step="any" min="0" max="100" value="${p.price > 0 ? r2(mg) : ''}"></label></div>
       <p class="sub calc">Lucro por unidade: <b id="profit">${brl(p.price - p.cost)}</b> · Markup é o lucro sobre o <b>custo</b>; margem é o lucro sobre o <b>preço</b>. Edite qualquer um dos três e os outros se ajustam.</p>
       <label class="chk-l"><input type="checkbox" name="featured" ${p.featured ? 'checked' : ''}> Produto em destaque (aparece primeiro no catálogo e em página própria no PDF)</label>
+      <fieldset class="vars"><legend>Tamanho e cor (opcional)</legend>
+        <p class="sub">Se o produto tem tamanhos ou cores, cadastre cada variação com o seu estoque. O estoque total vira a soma delas.</p>
+        <div class="vgen"><input name="gsizes" placeholder="Tamanhos: P, M, G" aria-label="Tamanhos"><input name="gcolors" placeholder="Cores: Preto, Branco" aria-label="Cores"><button type="button" class="btn ghost sm" id="vgen">Gerar combinações</button></div>
+        <div id="vrows"></div>
+        <button type="button" class="btn ghost sm" id="vadd">+ Adicionar variação</button>
+      </fieldset>
       <div class="row"><label>Estoque<input name="stock" type="number" step="1" value="${p.stock}"></label><label>Estoque mínimo<input name="min" type="number" step="1" min="0" value="${p.min}"></label></div>`, fd => {
       let cat = fd.get('category'); if (cat === '__new') cat = (fd.get('newcat') || '').trim();
       const price = parseFloat(fd.get('price')) || 0; if (price <= 0) { toast('Informe o preço de venda'); return false; }
-      const o = { name: fd.get('name').trim(), sku: fd.get('sku').trim(), category: cat, desc: fd.get('desc').trim(), featured: fd.get('featured') === 'on', cost: parseFloat(fd.get('cost')) || 0, price, stock: parseInt(fd.get('stock')) || 0, min: parseInt(fd.get('min')) || 0 };
+      const vids = fd.getAll('vid'), vs = fd.getAll('vsize'), vc = fd.getAll('vcolor'), vq = fd.getAll('vstock'), variants = [], seen = new Set();
+      for (let k = 0; k < vids.length; k++) {
+        const size = vs[k].trim(), color = vc[k].trim(), q = parseInt(vq[k]) || 0;
+        if (!size && !color && !q) continue;
+        const key = (size + '|' + color).toLowerCase();
+        if (seen.has(key)) { toast(`Variação repetida: ${vlabel({ size, color })}`); return false; }
+        seen.add(key); variants.push({ id: vids[k] || uid(), size, color, stock: q });
+      }
+      const o = { name: fd.get('name').trim(), sku: fd.get('sku').trim(), category: cat, desc: fd.get('desc').trim(), featured: fd.get('featured') === 'on', cost: parseFloat(fd.get('cost')) || 0, price, variants, stock: variants.length ? variants.reduce((s, v) => s + v.stock, 0) : parseInt(fd.get('stock')) || 0, min: parseInt(fd.get('min')) || 0 };
       ensureCat(cat); if (id) Object.assign(p, o); else db.products.push({ id: uid(), imgs: [], ...o }); save(); V.produtos();
     });
     const F = $('#mform'); let last = 'price';
@@ -625,11 +707,34 @@ const A = {
     };
     ['cost', 'price', 'markup', 'margin'].forEach(n => F[n].addEventListener('input', () => { if (n !== 'cost') last = n; upd(n); }));
     F.category.onchange = () => { $('#ncw').hidden = F.category.value !== '__new'; };
+    /* variações (tamanho e cor) */
+    const rows = $('#vrows');
+    const rowHtml = v => `<div class="vrow"><input type="hidden" name="vid" value="${esc(v.id || '')}"><input name="vsize" placeholder="Tamanho" value="${esc(v.size || '')}" aria-label="Tamanho"><input name="vcolor" placeholder="Cor" value="${esc(v.color || '')}" aria-label="Cor"><input name="vstock" type="number" step="1" placeholder="Qtd" value="${v.stock ?? 0}" aria-label="Estoque"><button type="button" class="btn bad sm" data-vrm aria-label="Remover variação">✕</button></div>`;
+    const vsync = () => {
+      const qs = [...rows.querySelectorAll('[name=vstock]')], has = qs.length > 0;
+      F.stock.readOnly = has; F.stock.title = has ? 'Soma das variações' : '';
+      if (has) F.stock.value = String(qs.reduce((s, i) => s + (parseInt(i.value) || 0), 0));
+    };
+    const vkeys = () => new Set([...rows.querySelectorAll('.vrow')].map(r => (r.querySelector('[name=vsize]').value.trim() + '|' + r.querySelector('[name=vcolor]').value.trim()).toLowerCase()));
+    rows.innerHTML = (p.variants || []).map(rowHtml).join(''); vsync();
+    $('#vadd').onclick = () => { rows.insertAdjacentHTML('beforeend', rowHtml({})); vsync(); rows.lastElementChild.querySelector('[name=vsize]').focus(); };
+    $('#vgen').onclick = () => {
+      const split = s => [...new Set(s.split(/[,;\/]+/).map(x => x.trim()).filter(Boolean))];
+      const sz = split(F.gsizes.value), co = split(F.gcolors.value);
+      if (!sz.length && !co.length) return toast('Digite os tamanhos e/ou as cores, separados por vírgula');
+      const have = vkeys(); let n = 0;
+      (sz.length ? sz : ['']).forEach(s => (co.length ? co : ['']).forEach(c => { if (have.has((s + '|' + c).toLowerCase())) return; rows.insertAdjacentHTML('beforeend', rowHtml({ size: s, color: c, stock: 0 })); n++; }));
+      F.gsizes.value = ''; F.gcolors.value = ''; vsync(); toast(n ? `${n} variação(ões) adicionada(s). Preencha o estoque de cada uma.` : 'Essas combinações já existem');
+    };
+    [F.gsizes, F.gcolors].forEach(i => { i.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); $('#vgen').click(); } }; });
+    rows.addEventListener('click', e => { const b = e.target.closest('[data-vrm]'); if (b) { b.closest('.vrow').remove(); vsync(); } });
+    rows.addEventListener('input', vsync);
   },
   photo: id => photoModal(id),
   adjStock(id) {
     const p = prod(id);
-    openModal(`Ajustar estoque — ${p.name}`, `<p>Estoque atual: <b>${p.stock}</b></p><label>Quantidade a somar (use negativo para retirar)<input name="d" type="number" step="1" required></label>`, fd => { p.stock += parseInt(fd.get('d')) || 0; save(); V.produtos(); });
+    const sel = hasVar(p) ? `<label>Variação<select name="v">${p.variants.map(v => `<option value="${v.id}">${esc(vlabel(v))} — ${v.stock} un.</option>`).join('')}</select></label>` : '';
+    openModal(`Ajustar estoque — ${p.name}`, `<p>Estoque atual: <b>${p.stock}</b>${hasVar(p) ? ' (total)' : ''}</p>${sel}<label>Quantidade a somar (use negativo para retirar)<input name="d" type="number" step="1" required></label>`, fd => { moveStock(p, fd.get('v') || '', parseInt(fd.get('d')) || 0); save(); V.produtos(); });
   },
   delProd(id) { if (confirmDel('Excluir este produto? As vendas antigas continuam no histórico.')) { db.products = db.products.filter(p => p.id !== id); cart = cart.filter(i => i.pid !== id); save(); V.produtos(); } },
   editClient(id) {
@@ -696,8 +801,12 @@ const A = {
     const link = p => digits ? 'https://wa.me/' + digits + '?text=' + encodeURIComponent(msg(p)) : '';
     const wrap = (p, cls, inner) => { const h = link(p); return h ? `<a class="${cls}" href="${esc(h)}" target="_blank" rel="noopener">${inner}</a>` : `<div class="${cls}">${inner}</div>`; };
     const pic = p => `<div class="im">${p.imgs[0] ? `<img src="${esc(p.imgs[0])}" alt="">` : `<span>${esc(p.name.charAt(0))}</span>`}${p.featured ? '<i class="st">★ Destaque</i>' : ''}</div>`;
-    const small = p => wrap(p, 'p', `${pic(p)}<div class="b"><h3>${esc(p.name)}</h3>${p.desc ? `<p class="d">${esc(p.desc)}</p>` : ''}<div class="pr">${brl(p.price)}</div>${digits ? '<div class="cta">Pedir no WhatsApp &rsaquo;</div>' : ''}</div>`);
-    const big = p => wrap(p, 'f', `${pic(p)}<div class="b"><h3>${esc(p.name)}</h3>${p.desc ? `<p class="d">${esc(p.desc)}</p>` : ''}<div class="pr">${brl(p.price)}</div>${digits ? '<div class="btn">Pedir no WhatsApp &rsaquo;</div>' : ''}</div>`);
+    const vopts = p => {
+      const av = hasVar(p) ? p.variants.filter(v => v.stock > 0) : [], u = k => [...new Set(av.map(v => v[k]).filter(Boolean))];
+      const z = u('size'), c = u('color'); return z.length || c.length ? `<p class="d">${[z.length && 'Tamanhos: ' + z.join(', '), c.length && 'Cores: ' + c.join(', ')].filter(Boolean).map(esc).join(' · ')}</p>` : '';
+    };
+    const small = p => wrap(p, 'p', `${pic(p)}<div class="b"><h3>${esc(p.name)}</h3>${p.desc ? `<p class="d">${esc(p.desc)}</p>` : ''}${vopts(p)}<div class="pr">${brl(p.price)}</div>${digits ? '<div class="cta">Pedir no WhatsApp &rsaquo;</div>' : ''}</div>`);
+    const big = p => wrap(p, 'f', `${pic(p)}<div class="b"><h3>${esc(p.name)}</h3>${p.desc ? `<p class="d">${esc(p.desc)}</p>` : ''}${vopts(p)}<div class="pr">${brl(p.price)}</div>${digits ? '<div class="btn">Pedir no WhatsApp &rsaquo;</div>' : ''}</div>`);
     const feats = items.filter(p => p.featured).slice(0, 6);
     const groups = {}; items.forEach(p => (groups[p.category || 'Outros'] ||= []).push(p));
     const order = [...new Set([...db.categories, ...Object.keys(groups)])].filter(c => groups[c]);
@@ -772,7 +881,7 @@ ${order.map(c => `<section class="cat"><h2 class="sec"><span>${esc(c)}</span><sm
     if (!m) return toast('Mensagem não reconhecida: cole o pedido completo, com a linha [[PED ...]]');
     const get = r => (t.match(r)?.[1] || '').trim();
     const items = [], lost = [];
-    m[1].split(',').forEach(x => { const [id, q] = x.split(':'), p = prod(id), qty = parseInt(q) || 0; if (p && qty > 0) items.push({ pid: p.id, name: p.name, price: p.price, cost: p.cost, qty }); else lost.push(id); });
+    m[1].split(',').forEach(x => { const [ref, q] = x.split(':'), [id, vid] = ref.split('~'), p = prod(id), qty = parseInt(q) || 0, v = variant(p, vid); if (p && qty > 0) items.push({ pid: p.id, vid: v?.id || '', name: v ? `${p.name} (${vlabel(v)})` : p.name, price: p.price, cost: p.cost, qty }); else lost.push(id); });
     if (!items.length) return toast('Nenhum produto da mensagem existe mais no sistema');
     const name = get(/Cliente:\s*(.+)/) || 'Cliente online', phone = get(/Telefone:\s*(.+)/), addr = get(/Endere[cç]o:\s*(.+)/), obs = get(/Obs:\s*(.+)/);
     let pay = get(/Pagamento:\s*(.+)/); if (!ONLINE_METHODS.includes(pay)) pay = 'Pix';
@@ -810,8 +919,22 @@ ${order.map(c => `<section class="cat"><h2 class="sec"><span>${esc(c)}</span><sm
   backup() { download(`backup-vendas-${dkey(new Date())}.json`, JSON.stringify(db), 'application/json'); },
   restore() { $('#file').click(); },
   reset() {
+    if (!isAdmin()) return toast('Só o administrador pode zerar os dados');
     if (!confirmDel('Apagar TODOS os dados? Isso não pode ser desfeito. (Faça um backup antes.)')) return;
-    db = normalize({ seq: 0, products: [], clients: [], leads: [], sales: [], receivables: [], users: db.users, categories: [], settings: db.settings }); cart = []; save(); render();
+    const warn = `<p class="sub" style="margin:0 0 10px">Para confirmar, digite a senha do administrador (${esc(cur.name)}). Produtos, clientes, vendas e contas a receber serão apagados.</p>`;
+    openModal('Confirmar exclusão de todos os dados', warn + fieldsHtml([{ k: 'pw', label: 'Senha do administrador', type: 'password', req: 1 }]), fd => {
+      const pw = fd.get('pw'), btn = $('#mform button:not([type=button])');
+      if (btn) btn.disabled = true;
+      const ok = CL.enabled ? CL.verifyPassword(pw).then(() => true, er => { toast(er?.code === 'auth/invalid-credential' || er?.code === 'auth/wrong-password' ? 'Senha incorreta' : authMsg(er)); return false; })
+        : hashPw(pw).then(h => h === cur.pass || (toast('Senha incorreta'), false));
+      ok.then(good => {
+        if (btn) btn.disabled = false;
+        if (!good) return;
+        $('#modal').close();
+        db = normalize({ seq: 0, products: [], clients: [], leads: [], sales: [], receivables: [], users: db.users, categories: [], settings: db.settings }); cart = []; save(); render(); toast('Dados apagados');
+      });
+      return false;
+    }, 'Apagar tudo');
   }
 };
 const toCsv = rows => rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(';')).join('\n');

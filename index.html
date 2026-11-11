@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Sistema de Vendas</title>
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0071e3">
@@ -11,7 +11,7 @@
 <meta name="apple-mobile-web-app-title" content="Vendas">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icons/icon-192.png">
-<link rel="stylesheet" href="style.css?v=23">
+<link rel="stylesheet" href="style.css?v=30">
 </head>
 <body>
 <aside class="side">
@@ -24,6 +24,7 @@
     <div class="nav-h">Relacionamento</div>
     <a href="#clientes" data-v="clientes">Clientes</a>
     <a href="#funil" data-v="funil">Funil (CRM)</a>
+    <a href="#posts" data-v="posts">Gerador de posts</a>
     <div class="nav-h" data-admin>Gestão</div>
     <a href="#dashboard" data-v="dashboard">Painel</a>
     <a href="#produtos" data-v="produtos">Produtos e estoque</a>
@@ -70,11 +71,14 @@
 <div id="receipt"></div>
 <dialog id="modal"><form method="dialog" id="mform"></form></dialog>
 <div id="toast" role="status" aria-live="polite"></div>
+<nav id="tabbar" aria-label="Menu principal" hidden></nav>
+<div id="more" hidden><div class="more-bg"></div><div class="more-sheet" role="dialog" aria-label="Mais opções"></div></div>
 <input type="file" id="file" accept="application/json" hidden>
 <script src="firebase-config.js?v=2"></script>
-<script src="cloud.js?v=1"></script>
-<script src="catalog.js?v=23"></script>
-<script src="app.js?v=23"></script>
+<script src="cloud.js?v=2"></script>
+<script src="catalog.js?v=24"></script>
+<script src="posts.js?v=2"></script>
+<script src="app.js?v=30"></script>
 <script>
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(function () {});
 window.__inst = null;

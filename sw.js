@@ -1,6 +1,6 @@
 /* Service worker: deixa o sistema abrir sem internet. Online, sempre busca a versão mais nova. */
-const CACHE = 'vendas-shell-v2';
-const SHELL = ['./', './index.html', './style.css', './app.js', './catalog.js', './firebase-config.js', './cloud.js', './manifest.webmanifest', './icons/icon-192.png'];
+const CACHE = 'vendas-shell-v3';
+const SHELL = ['./', './index.html', './style.css', './app.js', './posts.js', './catalog.js', './firebase-config.js', './cloud.js', './manifest.webmanifest', './icons/icon-192.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(k => Promise.all(k.filter(x => x !== CACHE).map(x => caches.delete(x)))).then(() => self.clients.claim())); });
 self.addEventListener('fetch', e => {

@@ -55,6 +55,8 @@
   C.signIn = (email, pass) => sdk.signInWithEmailAndPassword(auth, email, pass).then(c => c.user);
   C.resetPassword = email => sdk.sendPasswordResetEmail(auth, email);
   C.changePassword = pass => sdk.updatePassword(auth.currentUser, pass);
+  /* Confere a senha de quem está logado, sem trocar a sessão (usado para confirmar ações perigosas). */
+  C.verifyPassword = pass => { const u = auth.currentUser; return sdk.reauthenticateWithCredential(u, sdk.EmailAuthProvider.credential(u.email, pass)); };
   C.signOut = async () => { C.stop(); await sdk.signOut(auth); };
   C.ownerExists = async () => { try { return (await sdk.getDoc(sdk.doc(fs, 'meta', 'owner'))).exists(); } catch (e) { return true; } };
 

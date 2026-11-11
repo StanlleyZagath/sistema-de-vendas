@@ -34,11 +34,11 @@ service cloud.firestore {
       allow update, delete: if admin();
     }
 
-    // Produtos: administrador faz tudo; vendedor só baixa/devolve estoque (venda e cancelamento).
+    // Produtos: administrador faz tudo; vendedor só baixa/devolve estoque (estoque total e das variações).
     match /products/{id} {
       allow read: if member();
       allow create, delete: if admin();
-      allow update: if admin() || (member() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock']));
+      allow update: if admin() || (member() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock', 'variants']));
     }
 
     match /sales/{id}       { allow read, write: if member(); }

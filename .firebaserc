@@ -1,3 +1,17 @@
 {
-  "projects": { "default": "sistema-vendas-loja-60a6f" }
+  "projects": {
+    "default": "sistema-vendas-loja-60a6f"
+  },
+  "targets": {
+    "sistema-vendas-loja-60a6f": {
+      "hosting": {
+        "sistema": [
+          "sistema-vendas-loja-60a6f"
+        ],
+        "loja": [
+          "meuscrubpa"
+        ]
+      }
+    }
+  }
 }

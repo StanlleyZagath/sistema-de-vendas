@@ -1,28 +1,42 @@
 {
-  "hosting": {
-    "public": ".",
-    "ignore": [
-      "firebase.json",
-      "firestore.rules",
-      "README.md",
-      ".claude/**",
-      ".git/**",
-      ".firebaserc",
-      "**/node_modules/**",
-      "**/.*"
-    ],
-    "headers": [
-      {
-        "source": "sw.js",
-        "headers": [
-          {
-            "key": "Cache-Control",
-            "value": "no-cache"
-          }
-        ]
-      }
-    ]
-  },
+  "hosting": [
+    {
+      "public": ".",
+      "ignore": [
+        "firebase.json",
+        "firestore.rules",
+        "README.md",
+        ".claude/**",
+        "loja/**",
+        "build-loja.js",
+        ".git/**",
+        ".firebaserc",
+        "**/node_modules/**",
+        "**/.*"
+      ],
+      "headers": [
+        {
+          "source": "sw.js",
+          "headers": [
+            {
+              "key": "Cache-Control",
+              "value": "no-cache"
+            }
+          ]
+        }
+      ],
+      "target": "sistema"
+    },
+    {
+      "target": "loja",
+      "public": "loja",
+      "ignore": [
+        "firebase.json",
+        "**/.*",
+        "**/node_modules/**"
+      ]
+    }
+  ],
   "firestore": {
     "rules": "firestore.rules"
   }

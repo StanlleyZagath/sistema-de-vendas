@@ -113,7 +113,7 @@ label input,label select,label textarea{display:block;width:100%;margin-top:4px;
 <label>Observações<textarea name="obs" rows="2"></textarea></label>
 <button class="wa" id="send">Enviar pedido pelo WhatsApp</button></form></div></div></div>
 <script>
-var D=__DATA__,cart={},cat="",q="",sort="",only=false,openId="",selVid="",NL=String.fromCharCode(10);
+var LIVE=__LIVE__,D=__DATA__,cart={},cat="",q="",sort="",only=false,openId="",selVid="",NL=String.fromCharCode(10);
 function $(s){return document.querySelector(s)}
 function brl(n){return n.toLocaleString("pt-BR",{style:"currency",currency:"BRL"})}
 function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]})}
@@ -177,8 +177,16 @@ $("#send").onclick=function(){var f=$("#f");
  var L=[],ref=[],t=0;for(var k in cart){var s=sp(k),p=byId(s.id),v=vo(p,s.vid),nm=p.name+(v?" ("+vl(v)+")":"");t+=p.price*cart[k];L.push(cart[k]+"x "+nm+" - "+brl(p.price*cart[k]));ref.push(k+":"+cart[k])}
  var msg="*Novo pedido - "+D.name+"*"+NL+NL+L.join(NL)+NL+NL+"*Subtotal: "+brl(t)+"* (frete a combinar)"+NL+NL+"Cliente: "+f.nome.value.trim()+NL+"Telefone: "+f.tel.value.trim()+NL+"Endereco: "+(f.end.value.trim()||"retirada")+NL+"Pagamento: "+f.pag.value+(f.obs.value.trim()?NL+"Obs: "+f.obs.value.trim():"")+NL+NL+"[[PED "+ref.join(",")+"]]";
  window.open("https://wa.me/"+D.wa+"?text="+encodeURIComponent(msg),"_blank")};
-var hx=(D.color||"#0071e3").replace("#",""),cr=parseInt(hx.substr(0,2),16),cg=parseInt(hx.substr(2,2),16),cb=parseInt(hx.substr(4,2),16);
+function shop(){var hx=(D.color||"#0071e3").replace("#",""),cr=parseInt(hx.substr(0,2),16),cg=parseInt(hx.substr(2,2),16),cb=parseInt(hx.substr(4,2),16);
 document.documentElement.style.setProperty("--ac",D.color||"#0071e3");document.documentElement.style.setProperty("--at",(0.299*cr+0.587*cg+0.114*cb)>150?"#111":"#fff");
-document.title=D.name;$("#brand").textContent=D.name;$("#ttl").textContent=D.name;$("#tg").textContent=D.tagline||"";
-cats();list();bar();
+document.title=D.name;$("#brand").textContent=D.name;$("#ttl").textContent=D.name;$("#tg").textContent=D.tagline||""}
+function fixCart(){for(var k in cart){var s=sp(k),p=byId(s.id);if(!p){delete cart[k];continue}var m=stk(k);if(m<=0)delete cart[k];else if(cart[k]>m)cart[k]=m}}
+function refresh(){fixCart();cats();list();bar();if($("#bag").classList.contains("on"))lines();if(openId&&$("#pd").classList.contains("on")){if(byId(openId)){var sv=selVid;detail(openId);selVid=sv;var bs=document.querySelectorAll(".vo");for(var j=0;j<bs.length;j++)bs[j].classList.toggle("on",bs[j].getAttribute("data-vo")===sv)}else $("#pd").classList.remove("on")}}
+shop();cats();list();bar();
+if(LIVE){D.products=[];$("#grid").innerHTML='<p class="empty">Carregando produtos...</p>';
+ import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js").then(function(a){return import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js").then(function(f){
+  var fs=f.getFirestore(a.initializeApp(LIVE));
+  f.onSnapshot(f.doc(fs,"catalog_meta","store"),function(d){if(d.exists()){var m=d.data();D.name=m.name||D.name;D.wa=m.wa||"";D.tagline=m.tagline||"";D.color=m.color||D.color;shop()}});
+  f.onSnapshot(f.collection(fs,"catalog_items"),function(q){var a2=[];q.forEach(function(d){a2.push(d.data())});a2.sort(function(x,y){return (x.ord||0)-(y.ord||0)});D.products=a2;refresh()},function(){$("#grid").innerHTML='<p class="empty">Não foi possível carregar os produtos. Tente de novo em instantes.</p>'})
+ })}).catch(function(){$("#grid").innerHTML='<p class="empty">Não foi possível carregar os produtos.</p>'})}
 </script></body></html>`;

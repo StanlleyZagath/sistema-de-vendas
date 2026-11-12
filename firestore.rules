@@ -41,6 +41,17 @@ service cloud.firestore {
       allow update: if admin() || (member() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock', 'variants']));
     }
 
+    // Catálogo público (loja): qualquer pessoa lê; sem custo nem dados de clientes. Vendedor só ajusta estoque.
+    match /catalog_items/{id} {
+      allow read: if true;
+      allow create, delete: if admin();
+      allow update: if admin() || (member() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock', 'vars']));
+    }
+    match /catalog_meta/{id} {
+      allow read: if true;
+      allow write: if admin();
+    }
+
     match /sales/{id}       { allow read, write: if member(); }
     match /clients/{id}     { allow read, write: if member(); }
     match /leads/{id}       { allow read, write: if member(); }

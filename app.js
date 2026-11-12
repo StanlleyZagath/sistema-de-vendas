@@ -551,7 +551,7 @@ V.usuarios = () => {
 function catalogHtml() {
   const s = db.settings;
   const data = { name: s.name || 'Loja', wa: s.wa || '', tagline: s.tagline || '', color: s.color || '#0071e3', products: db.products.map(p => ({ id: p.id, name: p.name, cat: p.category, desc: p.desc, price: p.price, stock: p.stock, imgs: p.imgs, feat: p.featured, vars: hasVar(p) ? p.variants.map(v => ({ id: v.id, s: v.size, c: v.color, q: v.stock })) : [] })) };
-  return CATALOG_TPL.replace('__DATA__', () => JSON.stringify(data).replace(/</g, '\\u003c'));
+  return CATALOG_TPL.replace('__LIVE__', 'null').replace('__DATA__', () => JSON.stringify(data).replace(/</g, '\\u003c'));
 }
 V.catalogo = () => {
   const s = db.settings, withPhoto = db.products.filter(p => p.imgs.length).length;
@@ -575,6 +575,7 @@ V.catalogo = () => {
     <button class="btn">Salvar</button></form>
     <p class="sub" style="margin-top:10px">${db.products.length} produto(s), ${withPhoto} com foto. Adicione fotos e descrição em Produtos e estoque.</p></div>
   <div class="card"><h3>2 · Publicar o catálogo</h3>
+    ${CL.enabled ? `<div class="cat-live"><p><b>Loja ao vivo</b>: preço, estoque, tamanhos e cores se atualizam sozinhos no link da loja sempre que você salva um produto ou faz uma venda.</p>${db.settings.url ? `<p class="sub">Link: <a href="${esc(db.settings.url)}" target="_blank" rel="noopener">${esc(db.settings.url)}</a></p>` : '<p class="sub">Cole o endereço da sua loja em "Link do catálogo publicado" ao lado (aparece no PDF).</p>'}<div class="toolbar"><button class="btn" id="pubnow" onclick="A.publishNow()">Publicar agora</button></div><p class="sub">Use "Publicar agora" se algo não aparecer na loja: ele reenvia tudo.</p></div><hr>` : ''}
     <p>Escolha o formato: o <b>HTML</b> é a loja com sacola, para publicar num link. O <b>PDF</b> é uma vitrine para enviar direto no WhatsApp ou imprimir (só produtos disponíveis, sem sacola).</p>
     <div class="toolbar"><button class="btn ghost" onclick="A.previewCatalog()">Visualizar</button><button class="btn" onclick="A.downloadCatalog()">Baixar HTML</button><button class="btn" onclick="A.pdfCatalog()">Baixar PDF</button></div>
     <ol class="sub" style="padding-left:18px;margin:8px 0 0"><li>Baixe o arquivo.</li><li>Publique de graça: arraste o arquivo em <b>app.netlify.com/drop</b> (ou GitHub Pages / Cloudflare Pages).</li><li>Mande o link pelo WhatsApp e ponha na bio do Instagram.</li><li>Mudou preço ou estoque? Baixe e publique de novo.</li></ol></div></div>
@@ -782,6 +783,12 @@ const A = {
     if (window.__inst) { window.__inst.prompt(); window.__inst = null; $('#instbtn').hidden = true; }
     else openModal('Instalar no iPhone', '<p>No Safari, toque em <b>Compartilhar</b> (o quadrado com a seta) e depois em <b>Adicionar à Tela de Início</b>.</p>', null);
   },
+  async publishNow() {
+    const b = $('#pubnow'); if (b) b.disabled = true;
+    try { A.syncForm(); await CL.pushNow(); const n = await CL.publishCatalog(); toast(n + ' produto(s) publicados na loja'); }
+    catch (e) { toast('Não foi possível publicar: ' + ((e && (e.code || e.message)) || e)); }
+    finally { if (b) b.disabled = false; }
+  },
   syncForm() { const f = document.querySelector('#catform'); if (f) A.saveSettings(f, true); },
   saveSettings(f, quiet) {
     db.settings.pdfmsg = f.pdfmsg.value.trim() || DEF_PDFMSG; db.settings.url = f.url.value.trim(); db.settings.name = f.name.value.trim() || 'Minha loja'; db.settings.tagline = f.tagline.value.trim(); db.settings.wa = f.wa.value.replace(/\D/g, ''); db.settings.color = f.color.value; db.settings.ig = f.ig.value.trim(); db.settings.cvMode = f.cvMode.value; db.settings.cvColor = f.cvColor.value; db.settings.cvOp = +f.cvOp.value || 40; save(); if (!quiet) toast('Dados da loja salvos');
@@ -984,6 +991,7 @@ async function afterCloudLogin(fu, first) {
     CL.role = p.role;
     if (first) { await cloudMigrate(fu); save(); }
     enter(p);
+    if (CL.ensureCatalog) CL.ensureCatalog();
   } finally { cloudBusy = false; }
 }
 async function cloudBoot() {

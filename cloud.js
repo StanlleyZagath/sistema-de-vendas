@@ -130,6 +130,41 @@
     unsubs.forEach(u => { try { u(); } catch (e) { } }); unsubs = []; snap = {}; started = false; clearTimeout(pushTimer);
   };
 
+  /* ---------- catálogo público (espelho sem custo nem dados internos) ---------- */
+  const pubOf = p => ({ id: p.id, name: p.name || '', cat: p.category || '', desc: p.desc || '', price: +p.price || 0, stock: +p.stock || 0, imgs: p.imgs || [], feat: !!p.featured, ord: p._ts || 0, vars: (p.variants && p.variants.length) ? p.variants.map(v => ({ id: v.id, s: v.size || '', c: v.color || '', q: +v.stock || 0 })) : [] });
+  const pubMeta = db => { const s = db.settings || {}; return { name: s.name || 'Loja', wa: s.wa || '', tagline: s.tagline || '', color: s.color || '#0071e3' }; };
+  async function mirror(pops, metaChanged) {
+    const ops = pops.map(o => o.del ? { id: o.id, del: true } : { id: o.id, data: clean(pubOf(o.data)) });
+    if (!ops.length && !metaChanged) return;
+    try {
+      for (let i = 0; i < ops.length; i += 200) {
+        const b = sdk.writeBatch(fs);
+        ops.slice(i, i + 200).forEach(o => { const r = sdk.doc(fs, 'catalog_items', o.id); o.del ? b.delete(r) : b.set(r, o.data); });
+        await b.commit();
+      }
+      if (metaChanged && C.role === 'admin') await sdk.setDoc(sdk.doc(fs, 'catalog_meta', 'store'), { ...clean(pubMeta(getDb())), at: Date.now() });
+    } catch (e) { /* o catálogo público é secundário: não atrapalha a venda */ }
+  }
+  /* Envia tudo de novo e remove da loja o que não existe mais (botão "Publicar agora"; só administrador). */
+  C.publishCatalog = async function () {
+    if (!started || C.role !== 'admin') throw new Error('Só o administrador publica o catálogo.');
+    const db = getDb(), have = new Set(db.products.map(p => p.id));
+    const old = await sdk.getDocs(sdk.collection(fs, 'catalog_items')), ops = [];
+    db.products.forEach(p => ops.push({ id: p.id, data: clean(pubOf(p)) }));
+    old.forEach(d => { if (!have.has(d.id)) ops.push({ id: d.id, del: true }); });
+    for (let i = 0; i < ops.length; i += 200) {
+      const b = sdk.writeBatch(fs);
+      ops.slice(i, i + 200).forEach(o => { const r = sdk.doc(fs, 'catalog_items', o.id); o.del ? b.delete(r) : b.set(r, o.data); });
+      await b.commit();
+    }
+    await sdk.setDoc(sdk.doc(fs, 'catalog_meta', 'store'), { ...clean(pubMeta(db)), at: Date.now() });
+    return db.products.length;
+  };
+  /* Primeira vez que o administrador entra: se o catálogo público ainda não existe, cria. */
+  C.ensureCatalog = async function () {
+    try { if (C.role === 'admin' && !(await sdk.getDoc(sdk.doc(fs, 'catalog_meta', 'store'))).exists()) await C.publishCatalog(); } catch (e) { }
+  };
+
   /* Compara o estado local com o último estado sincronizado e envia só o que mudou. */
   async function push() {
     if (!started) return;
@@ -150,6 +185,7 @@
       if (m.get(key) !== c) ops.push({ col: 'meta', id: key, data: clean(METAS[key].get(db)), c, meta: true });
     });
     if (!ops.length) return;
+    const pops = ops.filter(o => o.col === 'products'), metaChanged = ops.some(o => o.col === 'meta' && o.id === 'settings');
     try {
       for (let i = 0; i < ops.length; i += 400) {
         const chunk = ops.slice(i, i + 400), b = sdk.writeBatch(fs);
@@ -159,7 +195,9 @@
       }
     } catch (e) {
       say(e && e.code === 'permission-denied' ? 'Sem permissão para essa alteração' : 'Erro ao sincronizar: ' + ((e && (e.code || e.message)) || e));
+      return;
     }
+    mirror(pops, metaChanged);
   }
   C.schedulePush = function () { clearTimeout(pushTimer); pushTimer = setTimeout(push, 250); };
   C.pushNow = function () { clearTimeout(pushTimer); return push(); };

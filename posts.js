@@ -152,14 +152,14 @@
     const gr = g.createLinearGradient(0, 0, W, H); gr.addColorStop(0, T.bg[0]); gr.addColorStop(1, T.bg[1]); g.fillStyle = gr; g.fillRect(0, 0, W, H);
     g.fillStyle = T.deco; [[W * 0.92, H * 0.1, 360], [W * 0.02, H * 0.78, 270]].forEach(([x, y, r]) => { g.beginPath(); g.arc(x, y, r, 0, 7); g.fill(); });
     const top = story ? 210 : P, bot = story ? 250 : P, hw = W - 2 * P, hasChips = c.sizes.length || c.colors.length, foot = [igUser() && '@' + igUser(), st.wa && waFmt(st.wa)].filter(Boolean).join('   •   ');
-    const minCard = story ? 640 : o.fmt === 'quad' ? 360 : 500;
+    const minCard = story ? 800 : o.fmt === 'quad' ? 470 : 660, PH = 84, PG = 18;
     g.textBaseline = 'alphabetic'; g.textAlign = 'left';
     let lay;
-    for (let size = story ? 112 : 100; size >= 48; size -= 6) {
+    for (let size = story ? 104 : 92; size >= 44; size -= 6) {
       const h = fit(g, o.hook.head, hw, size, 44, 4, 800), sub = fit(g, o.hook.sub || '', hw, Math.round(size * 0.5), 32, 3, 500);
       const hh = h.l.length * Math.round(h.s * 1.06), sh = o.hook.sub ? sub.l.length * Math.round(sub.s * 1.32) : 0;
       let ctaY = H - bot - 112 - (foot ? 60 : 0), chipsY = hasChips && o.fmt !== 'quad' ? ctaY - 26 - 68 : ctaY - 4;
-      const cardTop = top + 64 + hh + 22 + sh + (sh ? 28 : 6), avail = chipsY - 30 - cardTop;
+      const cardTop = top + 64 + hh + 22 + sh + (sh ? 28 : 6), avail = chipsY - 24 - cardTop - PH - PG;
       lay = { h, sub, hh, sh, ctaY, chipsY, cardTop, avail, chips: hasChips && o.fmt !== 'quad' };
       if (avail >= minCard) break;
     }
@@ -172,11 +172,11 @@
     lay.h.l.forEach((ln, i) => g.fillText(ln, P, y + i * lh)); y += (lay.h.l.length - 1) * lh + 22;
     if (lay.sh) { g.fillStyle = T.sub; g.font = `500 ${lay.sub.s}px ${FONT}`; const sl = Math.round(lay.sub.s * 1.32); y += lay.sub.s; lay.sub.l.forEach((ln, i) => g.fillText(ln, P, y + i * sl)); }
     /* cartão da foto */
-    const side = Math.min(W - 2 * P, Math.max(lay.avail, 240)), cx = (W - side) / 2, cy = lay.cardTop + Math.max(0, (lay.avail - side) / 2);
+    const side = Math.min(W - 2 * 40, Math.max(lay.avail, 240)), cx = (W - side) / 2, cy = lay.cardTop + Math.max(0, (lay.avail - side) / 2);
     g.save(); g.shadowColor = 'rgba(0,0,0,.28)'; g.shadowBlur = 50; g.shadowOffsetY = 18; g.fillStyle = T.card; rr(g, cx, cy, side, side, 44); g.fill(); g.restore();
     g.save(); rr(g, cx, cy, side, side, 44); g.clip();
     if (img) {
-      const pad = 22, bw = side - 2 * pad, k = Math.min(bw / img.width, bw / img.height), iw = img.width * k, ih = img.height * k;
+      const pad = 10, bw = side - 2 * pad, k = Math.min(bw / img.width, bw / img.height), iw = img.width * k, ih = img.height * k;
       g.drawImage(img, cx + (side - iw) / 2, cy + (side - ih) / 2, iw, ih);
     } else {
       const bg = g.createLinearGradient(cx, cy, cx + side, cy + side); bg.addColorStop(0, hexA(brandColor(), 0.18)); bg.addColorStop(1, hexA(brandColor(), 0.05)); g.fillStyle = bg; g.fillRect(cx, cy, side, side);
@@ -184,10 +184,10 @@
       g.fillStyle = '#4a5058'; const nf = fit(g, p.name, side - 80, 44, 26, 2, 700); nf.l.forEach((ln, i) => g.fillText(ln, cx + side / 2, cy + side * 0.78 + i * 52)); g.textAlign = 'left';
     }
     g.restore();
-    /* etiqueta de preço */
-    g.font = `800 ${Math.round(Math.min(64, side / 8))}px ${FONT}`; const pw = g.measureText(c.pt).width + 64, ph = Math.round(Math.min(64, side / 8) * 1.6), bx = cx + 24, by = cy + 24;
-    g.save(); g.shadowColor = 'rgba(0,0,0,.25)'; g.shadowBlur = 18; g.shadowOffsetY = 6; g.fillStyle = T.badge; rr(g, bx, by, pw, ph, ph / 2); g.fill(); g.restore();
-    g.fillStyle = T.badgeTxt; g.textBaseline = 'middle'; g.fillText(c.pt, bx + 32, by + ph / 2 + 2); g.textBaseline = 'alphabetic';
+    /* etiqueta de preço (abaixo da foto, nunca sobre ela) */
+    g.font = `800 56px ${FONT}`; const pw = g.measureText(c.pt).width + 72, bx = (W - pw) / 2, by = cy + side + PG;
+    g.save(); g.shadowColor = 'rgba(0,0,0,.25)'; g.shadowBlur = 18; g.shadowOffsetY = 6; g.fillStyle = T.badge; rr(g, bx, by, pw, PH, PH / 2); g.fill(); g.restore();
+    g.fillStyle = T.badgeTxt; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(c.pt, W / 2, by + PH / 2 + 2); g.textAlign = 'left'; g.textBaseline = 'alphabetic';
     /* tamanhos e cores */
     if (lay.chips) {
       const parts = [c.sizes.length && 'Tamanhos: ' + c.sizes.join(' · '), c.colors.length && 'Cores: ' + c.colors.join(' · ')].filter(Boolean);

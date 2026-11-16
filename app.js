@@ -33,6 +33,7 @@ function normalize(d) {
   d.receivables ||= []; d.users ||= []; d.sales ||= []; d.leads ||= []; d.clients ||= []; d.categories ||= [];
   d.products.forEach(p => {
     if (!p.imgs) p.imgs = p.img ? [p.img] : [];
+    p.lastCost = +p.lastCost || +p.cost || 0; p.buys = Array.isArray(p.buys) ? p.buys : [];
     delete p.img; p.desc ||= ''; p.category ||= ''; p.featured = !!p.featured;
     p.variants = Array.isArray(p.variants) ? p.variants.filter(v => v && v.id) : [];
     p.variants.forEach(v => { v.size ||= ''; v.color ||= ''; v.stock = parseInt(v.stock) || 0; }); syncStock(p);
@@ -64,6 +65,17 @@ const done = () => db.sales.filter(s => s.status === 'concluída');
 const ensureCat = c => { if (c && !db.categories.includes(c)) db.categories.push(c); };
 const markup = p => p.cost > 0 ? (p.price - p.cost) / p.cost * 100 : null;
 const margin = p => p.price > 0 ? (p.price - p.cost) / p.price * 100 : null;
+/* Custo médio ponderado: cada compra recalcula o custo; a venda não mexe nele (só tira do estoque).
+   p.cost = custo médio (base do lucro) · p.lastCost = último custo de compra (base do preço de reposição). */
+const r4 = n => Math.round((n + Number.EPSILON) * 10000) / 10000;
+function buyStock(p, vid, qty, unit, date, who, opt) {
+  const have = Math.max(0, p.stock || 0), prev = p.cost || 0, prevLast = p.lastCost || 0, tot = have + qty;
+  p.cost = r4(tot > 0 ? (have * prev + qty * unit) / tot : unit); p.lastCost = unit;
+  moveStock(p, vid, qty);
+  (p.buys ||= []).push({ id: uid(), date, qty, cost: unit, avg: p.cost, who: who || '', opt: opt || '', vid: vid || '', prev, prevLast });
+}
+/* Preço que repõe o produto ao último custo mantendo a margem de hoje. */
+const sugPrice = p => { const m = margin(p); return p.lastCost > 0 && m !== null && m > 0 && m < 99 ? r2(p.lastCost / (1 - m / 100)) : null; };
 const pct = n => n === null ? '—' : (Math.round(n * 10) / 10).toLocaleString('pt-BR') + '%';
 
 function makeSale({ items, discount = 0, discountPct = 0, shipping = 0, method, clientId = '', channel, status, installments = 1, firstDue = '', note = '', received = 0, change = 0 }) {
@@ -380,10 +392,10 @@ function prodTable() {
     <div class="card hero"><h3>Investido em estoque (custo)${filtered ? ' — seleção atual' : ''}</h3><div class="kpi">${brl(invested)}<small>${units} unidade(s) em ${l.filter(p => p.stock > 0).length} produto(s)</small></div></div>
     <div class="card"><h3>Valor de venda do estoque</h3><div class="kpi">${brl(worth)}</div></div>
     <div class="card"><h3>Lucro potencial</h3><div class="kpi">${brl(worth - invested)}<small>${worth ? Math.round((worth - invested) / worth * 100) : 0}% de margem</small></div></div></div>
-  <div class="tw"><table><tr><th>Produto</th><th>Categoria</th><th class="r">Custo</th><th class="r">Preço</th><th class="r">Markup</th><th class="r">Margem</th><th class="r">Estoque</th><th class="r">Investido</th><th></th></tr>
-  ${l.map(p => `<tr><td><div style="display:flex;gap:10px;align-items:center">${p.imgs[0] ? `<img class="thumb" src="${esc(p.imgs[0])}" alt="">` : `<span class="thumb ph">${esc(p.name.charAt(0))}</span>`}<span><b>${esc(p.name)}</b>${p.featured ? ' <span class="tag ok">★ destaque</span>' : ''}${p.imgs.length > 1 ? ` <span class="tag">${p.imgs.length} fotos</span>` : ''}<br><small>${esc(p.sku)}</small>${hasVar(p) ? `<br><small class="vlist">${p.variants.map(v => `${esc(vlabel(v))}: <b>${v.stock}</b>`).join(' · ')}</small>` : ''}</span></div></td><td>${esc(catName(p.category))}</td><td class="r">${brl(p.cost)}</td><td class="r">${brl(p.price)}</td><td class="r">${pct(markup(p))}</td><td class="r">${pct(margin(p))}</td>
+  <div class="tw"><table><tr><th>Produto</th><th>Categoria</th><th class="r">Custo médio</th><th class="r">Preço</th><th class="r">Markup</th><th class="r">Margem</th><th class="r">Estoque</th><th class="r">Investido</th><th></th></tr>
+  ${l.map(p => `<tr><td><div style="display:flex;gap:10px;align-items:center">${p.imgs[0] ? `<img class="thumb" src="${esc(p.imgs[0])}" alt="">` : `<span class="thumb ph">${esc(p.name.charAt(0))}</span>`}<span><b>${esc(p.name)}</b>${p.featured ? ' <span class="tag ok">★ destaque</span>' : ''}${p.imgs.length > 1 ? ` <span class="tag">${p.imgs.length} fotos</span>` : ''}<br><small>${esc(p.sku)}</small>${hasVar(p) ? `<br><small class="vlist">${p.variants.map(v => `${esc(vlabel(v))}: <b>${v.stock}</b>`).join(' · ')}</small>` : ''}</span></div></td><td>${esc(catName(p.category))}</td><td class="r">${brl(p.cost)}${Math.abs((p.lastCost || 0) - p.cost) > 0.004 ? `<br><small>último: ${brl(p.lastCost)}</small>` : ''}</td><td class="r">${brl(p.price)}${(() => { const sg = sugPrice(p); return sg && sg > p.price + 0.004 ? `<br><small class="tag warn" title="Para repor ao último custo mantendo a margem">repor: ${brl(sg)}</small>` : ''; })()}</td><td class="r">${pct(markup(p))}</td><td class="r">${pct(margin(p))}</td>
   <td class="r"><span class="tag ${p.stock <= 0 ? 'bad' : p.stock <= p.min ? 'warn' : 'ok'}">${p.stock}</span></td><td class="r">${brl(Math.max(0, p.stock) * p.cost)}</td>
-  <td class="r"><button class="btn ghost sm" onclick="A.photo('${p.id}')">Fotos</button> <button class="btn ghost sm" onclick="A.adjStock('${p.id}')">± Estoque</button> <button class="btn ghost sm" onclick="A.editProd('${p.id}')">Editar</button> <button class="btn bad sm" onclick="A.delProd('${p.id}')" aria-label="Excluir">✕</button></td></tr>`).join('') || '<tr><td colspan="9" class="empty">Nenhum produto encontrado</td></tr>'}</table></div>`;
+  <td class="r"><button class="btn ghost sm" onclick="A.photo('${p.id}')">Fotos</button> <button class="btn ghost sm" onclick="A.buys('${p.id}')">Compras</button> <button class="btn ghost sm" onclick="A.adjStock('${p.id}')">± Estoque</button> <button class="btn ghost sm" onclick="A.editProd('${p.id}')">Editar</button> <button class="btn bad sm" onclick="A.delProd('${p.id}')" aria-label="Excluir">✕</button></td></tr>`).join('') || '<tr><td colspan="9" class="empty">Nenhum produto encontrado</td></tr>'}</table></div>`;
 }
 function catModal() {
   openModal('Categorias', `<form id="ncf" class="inline-add" onsubmit="return false"><input id="ncin" placeholder="Nova categoria..." maxlength="40"><button type="button" class="btn" id="ncadd">Adicionar</button></form>
@@ -458,7 +470,7 @@ function nfeModal(nfs) {
     ${nfs.map(nf => `<p class="sub">NF ${esc(nf.num || '?')} · ${esc(nf.supplier || 'fornecedor')} · ${nf.items.length} item(ns)</p>`).join('')}
     ${dups.length ? '<p class="out warn" style="padding:8px 10px;border-radius:8px">Atenção: ' + dups.length + ' nota(s) já foram importadas antes. Os itens vieram como "Ignorar" para não duplicar o estoque.</p>' : ''}
     <div class="row"><label>Margem para produto novo (%)<input name="mk" type="number" min="0" step="any" value="100"></label>
-    <label class="chk-l" style="align-self:end"><input type="checkbox" name="uc" checked> Atualizar o custo dos produtos</label></div>
+    <label class="chk-l" style="align-self:end"><input type="checkbox" name="uc" checked> Registrar como compra (atualiza o custo médio)</label></div>
     <div class="tw"><table><tr><th>Item da nota</th><th class="r">Qtd</th><th class="r">Custo un.</th><th>O que fazer</th></tr>
     ${rows.map((r, i) => `<tr><td><input name="n${i}" value="${esc(r.name)}"><small>${esc(r.code)}</small></td><td class="r"><input name="q${i}" type="number" min="0" step="1" value="${Math.round(r.qty)}" style="width:80px"></td><td class="r">${brl(r.cost)}</td><td><select name="a${i}">${opts(r)}</select></td></tr>`).join('')}</table></div>
     <p class="sub">Produto novo recebe preço = custo + margem; ajuste depois em Editar. Itens iguais por código ou nome já vêm marcados para somar.</p>`,
@@ -467,8 +479,8 @@ function nfeModal(nfs) {
     rows.forEach((r, i) => {
       const a = fd.get('a' + i), qty = parseInt(fd.get('q' + i)) || 0;
       if (a === 'skip' || !a) return;
-      if (a === 'new') { const nm = (fd.get('n' + i) || '').trim() || r.name; db.products.push({ id: uid(), name: nm, sku: r.code || r.ean, category: '', desc: '', price: r2(r.cost * (1 + mk / 100)), cost: r.cost, stock: qty, min: 5, imgs: [], featured: false }); neu++; }
-      else { const p = prod(a.slice(2)); if (!p) return; moveStock(p, '', qty); if (uc && r.cost > 0) p.cost = r.cost; if (!p.sku && (r.code || r.ean)) p.sku = r.code || r.ean; add++; }
+      if (a === 'new') { const nm = (fd.get('n' + i) || '').trim() || r.name; db.products.push({ id: uid(), name: nm, sku: r.code || r.ean, category: '', desc: '', price: r2(r.cost * (1 + mk / 100)), cost: r.cost, lastCost: r.cost, stock: qty, min: 5, imgs: [], featured: false, buys: qty > 0 && r.cost > 0 ? [{ id: uid(), date: dkey(new Date()), qty, cost: r.cost, avg: r.cost, who: ('NF ' + (r.nf.num || '') + ' ' + (r.nf.supplier || '')).trim(), opt: '', vid: '', prev: 0, prevLast: 0 }] : [] }); neu++; }
+      else { const p = prod(a.slice(2)); if (!p) return; if (uc && r.cost > 0 && qty > 0) buyStock(p, '', qty, r.cost, dkey(new Date()), ('NF ' + (r.nf.num || '') + ' ' + (r.nf.supplier || '')).trim()); else moveStock(p, '', qty); if (!p.sku && (r.code || r.ean)) p.sku = r.code || r.ean; add++; }
     });
     nfs.forEach(nf => { if (nf.key && !db.nfeKeys.includes(nf.key)) db.nfeKeys.push(nf.key); });
     save(); V.produtos(); toast(`NF-e importada: ${add} somado(s) ao estoque, ${neu} produto(s) novo(s)`);
@@ -669,7 +681,8 @@ const A = {
       <label>Categoria<select name="category">${catOptions(p.category, 'Sem categoria')}<option value="__new">+ Nova categoria…</option></select></label></div>
       <label id="ncw" hidden>Nome da nova categoria<input name="newcat" maxlength="40"></label>
       <label>Descrição (aparece no catálogo)<textarea name="desc" rows="2">${esc(p.desc)}</textarea></label>
-      <div class="row"><label>Custo (R$)<input name="cost" type="number" step="any" min="0" value="${p.cost || ''}"></label><label>Preço de venda (R$)<input name="price" type="number" step="any" min="0" value="${p.price || ''}" required></label></div>
+      <div class="row"><label>Custo médio (R$)<input name="cost" type="number" step="any" min="0" value="${p.cost || ''}"></label><label>Preço de venda (R$)<input name="price" type="number" step="any" min="0" value="${p.price || ''}" required></label></div>
+      ${id ? `<p class="sub">O custo médio se atualiza sozinho a cada compra registrada em <b>Compras</b>. Último custo de compra: <b>${brl(p.lastCost)}</b>${sugPrice(p) ? ` · preço para repor mantendo a margem: <b>${brl(sugPrice(p))}</b>` : ''}.</p>` : ''}
       <div class="row"><label>Markup (%)<input name="markup" type="number" step="any" min="0" value="${p.cost > 0 ? r2(mk) : ''}"></label><label>Margem de lucro (%)<input name="margin" type="number" step="any" min="0" max="100" value="${p.price > 0 ? r2(mg) : ''}"></label></div>
       <p class="sub calc">Lucro por unidade: <b id="profit">${brl(p.price - p.cost)}</b> · Markup é o lucro sobre o <b>custo</b>; margem é o lucro sobre o <b>preço</b>. Edite qualquer um dos três e os outros se ajustam.</p>
       <label class="chk-l"><input type="checkbox" name="featured" ${p.featured ? 'checked' : ''}> Produto em destaque (aparece primeiro no catálogo e em página própria no PDF)</label>
@@ -691,7 +704,7 @@ const A = {
         seen.add(key); variants.push({ id: vids[k] || uid(), size, color, stock: q });
       }
       const o = { name: fd.get('name').trim(), sku: fd.get('sku').trim(), category: cat, desc: fd.get('desc').trim(), featured: fd.get('featured') === 'on', cost: parseFloat(fd.get('cost')) || 0, price, variants, stock: variants.length ? variants.reduce((s, v) => s + v.stock, 0) : parseInt(fd.get('stock')) || 0, min: parseInt(fd.get('min')) || 0 };
-      ensureCat(cat); if (id) Object.assign(p, o); else db.products.push({ id: uid(), imgs: [], ...o }); save(); V.produtos();
+      ensureCat(cat); if (id) Object.assign(p, o); else db.products.push({ id: uid(), imgs: [], ...o, lastCost: o.cost, buys: o.stock > 0 && o.cost > 0 ? [{ id: uid(), date: dkey(new Date()), qty: o.stock, cost: o.cost, avg: o.cost, who: 'Estoque inicial', opt: '', vid: '', prev: 0, prevLast: 0 }] : [] }); save(); V.produtos();
     });
     const F = $('#mform'); let last = 'price';
     const num = n => parseFloat(F[n].value) || 0, set = (n, v) => { F[n].value = isFinite(v) ? String(r2(v)) : ''; };
@@ -732,6 +745,40 @@ const A = {
     rows.addEventListener('input', vsync);
   },
   photo: id => photoModal(id),
+  buys(id) {
+    const p = prod(id), b = (p.buys || []).map((x, i) => ({ ...x, i })).sort((x, y) => y.date.localeCompare(x.date) || y.i - x.i), sg = sugPrice(p);
+    const qty = sum(b, x => x.qty), spent = sum(b, x => x.qty * x.cost), last = (p.buys || [])[(p.buys || []).length - 1];
+    openModal('Compras — ' + p.name, `<div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr))">
+      <div class="card"><h3>Custo médio</h3><div class="kpi">${brl(p.cost)}</div></div>
+      <div class="card"><h3>Último custo</h3><div class="kpi">${brl(p.lastCost)}</div></div>
+      <div class="card"><h3>Estoque</h3><div class="kpi">${p.stock}</div></div></div>
+    <p class="sub">O lucro é calculado com o <b>custo médio</b>. O <b>último custo</b> serve para definir o preço de venda, porque é o que você paga para repor.</p>
+    ${sg ? `<div class="sug ${sg > p.price + 0.004 ? 'up' : ''}"><span>Preço atual <b>${brl(p.price)}</b>. Para repor ao último custo e manter a margem de ${pct(margin(p))}, o preço seria <b>${brl(sg)}</b>.</span>${sg > p.price + 0.004 ? `<button type="button" class="btn sm" onclick="A.applySug('${id}')">Usar este preço</button>` : ''}</div>` : ''}
+    <div class="toolbar"><button type="button" class="btn" onclick="A.buy('${id}')">+ Registrar compra</button>${last && last.prev !== undefined ? `<button type="button" class="btn ghost" onclick="A.undoBuy('${id}')">Desfazer a última compra</button>` : ''}</div>
+    <div class="tw"><table><tr><th>Data</th><th class="r">Qtd</th><th class="r">Valor un.</th><th class="r">Total</th><th class="r">Médio depois</th></tr>
+    ${b.map(x => `<tr><td>${fday(x.date)}${[x.who, x.opt].filter(Boolean).length ? `<br><small>${esc([x.who, x.opt].filter(Boolean).join(' · '))}</small>` : ''}</td><td class="r">${x.qty}</td><td class="r">${brl(x.cost)}</td><td class="r">${brl(x.qty * x.cost)}</td><td class="r">${brl(x.avg)}</td></tr>`).join('') || '<tr><td colspan="5" class="empty">Nenhuma compra registrada ainda</td></tr>'}</table></div>
+    ${b.length ? `<p class="sub">Total comprado: ${qty} un. por ${brl(spent)}.</p>` : ''}`, null);
+  },
+  buy(id) {
+    const p = prod(id), sel = hasVar(p) ? `<label>Variação<select name="v">${p.variants.map(v => `<option value="${v.id}">${esc(vlabel(v))} — ${v.stock} un.</option>`).join('')}</select></label>` : '';
+    openModal('Registrar compra — ' + p.name, `<p class="sub">Estoque atual: <b>${p.stock}</b> · custo médio: <b>${brl(p.cost)}</b></p>${sel}
+      <div class="row"><label>Quantidade comprada<input name="q" type="number" min="1" step="1" required></label><label>Valor de cada unidade (R$)<input name="c" type="number" min="0" step="any" required></label></div>
+      <div class="row"><label>Data da compra<input name="d" type="date" value="${dkey(new Date())}" required></label><label>Fornecedor / observação<input name="w" maxlength="60"></label></div>
+      <p class="sub calc" id="bprev">Informe a quantidade e o valor para ver o novo custo médio.</p>`, fd => {
+      const q = parseInt(fd.get('q')) || 0, c = parseFloat(fd.get('c')) || 0, vid = fd.get('v') || '', v = variant(p, vid);
+      if (q <= 0 || c <= 0) { toast('Informe a quantidade e o valor da compra'); return false; }
+      buyStock(p, vid, q, c, fd.get('d') || dkey(new Date()), (fd.get('w') || '').trim(), v ? vlabel(v) : '');
+      save(); V.produtos(); toast(`Compra registrada. Novo custo médio: ${brl(p.cost)}`);
+    }, 'Registrar');
+    const F = $('#mform'), up = () => { const q = parseInt(F.q.value) || 0, c = parseFloat(F.c.value) || 0, have = Math.max(0, p.stock), t = have + q; if (q > 0 && c > 0) $('#bprev').innerHTML = `Novo custo médio: <b>${brl(t > 0 ? (have * p.cost + q * c) / t : c)}</b> = (${have} × ${brl(p.cost)} + ${q} × ${brl(c)}) ÷ ${t}`; };
+    F.q.oninput = up; F.c.oninput = up; F.q.focus();
+  },
+  undoBuy(id) {
+    const p = prod(id), last = (p.buys || [])[(p.buys || []).length - 1]; if (!last) return;
+    if (!confirmDel(`Desfazer a compra de ${last.qty} un. a ${brl(last.cost)}? O estoque diminui ${last.qty} e o custo volta ao anterior.`)) return;
+    moveStock(p, last.vid, -last.qty); p.cost = last.prev; p.lastCost = last.prevLast; p.buys.pop(); save(); V.produtos(); A.buys(id); toast('Compra desfeita');
+  },
+  applySug(id) { const p = prod(id), sg = sugPrice(p); if (!sg) return; p.price = sg; save(); V.produtos(); A.buys(id); toast('Preço atualizado para ' + brl(sg)); },
   adjStock(id) {
     const p = prod(id);
     const sel = hasVar(p) ? `<label>Variação<select name="v">${p.variants.map(v => `<option value="${v.id}">${esc(vlabel(v))} — ${v.stock} un.</option>`).join('')}</select></label>` : '';

@@ -292,3 +292,7 @@ select{cursor:pointer}
 .warn-t{color:var(--bad)}
 .pg-btns{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
 .pg-btns .btn{width:100%}
+
+/* compras e custo médio */
+.sug{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:10px 12px;border-radius:10px;background:rgba(255,255,255,.05);margin:8px 0;font-size:14px}
+.sug.up{background:rgba(255,200,60,.12);border:1px solid rgba(255,200,60,.35)}

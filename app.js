@@ -453,10 +453,16 @@ function photoModal(id) {
     save(); photoModal(id); if (location.hash === '#produtos') prodTable(); if (bad) toast(`${bad} arquivo(s) não puderam ser lidos`);
   };
 }
-function shrink(file, max = 640) {
+function shrink(file, max = 1080, cap = 115000) {
   return new Promise((res, rej) => {
     const img = new Image(), url = URL.createObjectURL(file);
-    img.onload = () => { const k = Math.min(1, max / Math.max(img.width, img.height)), c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k); const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url); res(c.toDataURL('image/jpeg', 0.8)); };
+    img.onload = () => {
+      const k = Math.min(1, max / Math.max(img.width, img.height)), c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      const g = c.getContext('2d'); g.imageSmoothingQuality = 'high'; g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url);
+      let q = 0.86, out = c.toDataURL('image/jpeg', q);
+      while (out.length > cap && q > 0.5) { q -= 0.08; out = c.toDataURL('image/jpeg', q); }
+      res(out);
+    };
     img.onerror = () => { URL.revokeObjectURL(url); rej(); }; img.src = url;
   });
 }

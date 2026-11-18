@@ -173,10 +173,10 @@
       const ims = (await Promise.all((p.imgs || []).slice(0, 4).map(loadImg))).filter(Boolean);
       if (ims.length || NOIMG.includes(o.layout)) {
         if (o.layout === 'grupo') o.extra = (await Promise.all([p, ...db.products.filter(x => x.id !== p.id)].filter(x => x.imgs && x.imgs[0]).slice(0, 3).map(x => loadImg(x.imgs[0])))).filter(Boolean);
-        cv.width = W; cv.height = H; const g0 = cv.getContext('2d'); g0.textBaseline = 'alphabetic'; g0.textAlign = 'left'; LAYOUTS[o.layout](g0, W, H, p, c, o, ims); return;
+        cv.width = W; cv.height = H; const g0 = cv.getContext('2d'); g0.imageSmoothingEnabled = true; g0.imageSmoothingQuality = 'high'; g0.textBaseline = 'alphabetic'; g0.textAlign = 'left'; LAYOUTS[o.layout](g0, W, H, p, c, o, ims); return;
       }
     }
-    cv.width = W; cv.height = H; const g = cv.getContext('2d');
+    cv.width = W; cv.height = H; const g = cv.getContext('2d'); g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
     const T = theme(o.style, brandColor()), img = await loadImg((p.imgs || [])[0]), HEAD = o.hook.head;
     const gr = g.createLinearGradient(0, 0, W, H); gr.addColorStop(0, T.bg[0]); gr.addColorStop(1, T.bg[1]); g.fillStyle = gr; g.fillRect(0, 0, W, H);
     g.fillStyle = T.deco; [[W * 0.92, H * 0.1, 360], [W * 0.02, H * 0.78, 270]].forEach(([x, y, r]) => { g.beginPath(); g.arc(x, y, r, 0, 7); g.fill(); });

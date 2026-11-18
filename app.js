@@ -25,14 +25,16 @@ const DEF_PDFMSG = 'Olá! Tenho interesse em {produto} ({preco}). Vi no catálog
 
 /* ========== Dados ========== */
 function seed() {
-  return { seq: 0, products: [], clients: [], leads: [], sales: [], receivables: [], users: [], categories: [], settings: {} };
+  return { seq: 0, products: [], clients: [], leads: [], sales: [], receivables: [], users: [], categories: [], coupons: [], settings: {} };
 }
 function normalize(d) {
   d.settings ||= {}; d.settings.name ||= 'Minha loja'; d.settings.wa ||= '';
   d.settings.tagline ??= 'Escolha seus produtos e finalize o pedido pelo WhatsApp.'; d.settings.color ||= '#0071e3'; d.settings.url ||= ''; d.settings.pdfmsg ||= DEF_PDFMSG; d.nfeKeys ||= []; d.settings.ig ||= ''; d.settings.cvMode ||= 'cor'; d.settings.cvColor ||= d.settings.color; d.settings.cvImg ||= ''; d.settings.cvOp ??= 40;
+  d.coupons = Array.isArray(d.coupons) ? d.coupons : []; d.settings.wagroup ||= '';
   d.receivables ||= []; d.users ||= []; d.sales ||= []; d.leads ||= []; d.clients ||= []; d.categories ||= [];
   d.products.forEach(p => {
     if (!p.imgs) p.imgs = p.img ? [p.img] : [];
+    p.discount = Math.min(90, Math.max(0, +p.discount || 0));
     p.lastCost = +p.lastCost || +p.cost || 0; p.buys = Array.isArray(p.buys) ? p.buys : [];
     delete p.img; p.desc ||= ''; p.category ||= ''; p.featured = !!p.featured;
     p.variants = Array.isArray(p.variants) ? p.variants.filter(v => v && v.id) : [];
@@ -76,12 +78,24 @@ function buyStock(p, vid, qty, unit, date, who, opt) {
 }
 /* Preço que repõe o produto ao último custo mantendo a margem de hoje. */
 const sugPrice = p => { const m = margin(p); return p.lastCost > 0 && m !== null && m > 0 && m < 99 ? r2(p.lastCost / (1 - m / 100)) : null; };
+/* Desconto promocional por produto (%) e cupons de desconto. O preço de venda de verdade é salePrice(p). */
+const salePrice = p => p.discount > 0 ? r2(p.price * (1 - p.discount / 100)) : p.price;
+const normCode = c => String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+function couponCheck(code, subtotal) {
+  const k = normCode(code); if (!k) return { ok: false, msg: 'Digite o código do cupom' };
+  const c = db.coupons.find(x => x.code === k); if (!c) return { ok: false, msg: 'Cupom não encontrado' };
+  if (!c.active) return { ok: false, msg: 'Cupom desativado' };
+  if (c.until && dkey(new Date()) > c.until) return { ok: false, msg: 'Cupom vencido' };
+  if (c.max > 0 && (c.uses || 0) >= c.max) return { ok: false, msg: 'Cupom esgotado' };
+  if (c.min > 0 && subtotal < c.min) return { ok: false, msg: 'Compra mínima de ' + brl(c.min) };
+  return { ok: true, c };
+}
 const pct = n => n === null ? '—' : (Math.round(n * 10) / 10).toLocaleString('pt-BR') + '%';
 
-function makeSale({ items, discount = 0, discountPct = 0, shipping = 0, method, clientId = '', channel, status, installments = 1, firstDue = '', note = '', received = 0, change = 0 }) {
+function makeSale({ items, discount = 0, discountPct = 0, shipping = 0, method, clientId = '', channel, status, installments = 1, firstDue = '', note = '', received = 0, change = 0, coupon = '' }) {
   const subtotal = r2(items.reduce((s, i) => s + i.price * i.qty, 0));
   discount = r2(Math.max(0, Math.min(discount, subtotal))); shipping = r2(Math.max(0, shipping || 0));
-  const sale = { note, id: uid(), num: ++db.seq, date: new Date().toISOString(), items, subtotal, discount, discountPct, shipping, total: r2(subtotal - discount + shipping), received, change, method, clientId, channel, status, sellerId: cur?.id || '' };
+  const sale = { note, id: uid(), num: ++db.seq, date: new Date().toISOString(), items, subtotal, discount, discountPct, shipping, total: r2(subtotal - discount + shipping), received, change, method, clientId, channel, status, sellerId: cur?.id || '', coupon };
   if (status === 'concluída') items.forEach(i => { const p = prod(i.pid); if (p) moveStock(p, i.vid, -i.qty); });
   if (method === FIADO && status === 'concluída') {
     const n = Math.max(1, Math.min(24, installments | 0)), cents = Math.round(sale.total * 100), base = Math.floor(cents / n);
@@ -101,7 +115,7 @@ async function hashPw(p) {
   return 'x' + btoa(unescape(encodeURIComponent(s)));
 }
 const isAdmin = () => cur?.role === 'admin';
-const ADMIN_ONLY = ['dashboard', 'produtos', 'relatorios', 'usuarios', 'catalogo'];
+const ADMIN_ONLY = ['dashboard', 'produtos', 'relatorios', 'usuarios', 'catalogo', 'cupons'];
 async function ensureUsers() {
   if (CL.enabled) return;
   if (!db.users.length) { db.users.push({ id: uid(), name: 'Administrador', login: 'admin', role: 'admin', commission: 0, pass: await hashPw('admin'), mustChange: true }); save(); }
@@ -147,6 +161,7 @@ const TAB_ICO = {
   catalogo: '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/>',
   usuarios: '<circle cx="9" cy="8" r="3.5"/><path d="M2 20c0-3.5 3-5.5 7-5.5s7 2 7 5.5"/><path d="M17 4.5a3.5 3.5 0 0 1 0 7M19 15c2 .7 3 2.3 3 5"/>',
   posts: '<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/>',
+  cupons: '<path d="M3 8a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-4z"/><path d="M13 7v10" stroke-dasharray="2 2"/>',
   mais: '<circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/>'
 };
 const TAB_LAB = { dashboard: 'Painel', pdv: 'Caixa', vendas: 'Vendas', produtos: 'Produtos', receber: 'A receber', clientes: 'Clientes', mais: 'Mais' };
@@ -213,7 +228,7 @@ const catOptions = (sel, all) => (all ? `<option value="">${all}</option>` : '')
 
 /* ========== Roteamento ========== */
 const V = {};
-const TITLES = { dashboard: 'Painel', pdv: 'PDV — Caixa', vendas: 'Vendas e pedidos', receber: 'Contas a receber', produtos: 'Produtos e estoque', clientes: 'Clientes', funil: 'Funil de vendas (CRM)', relatorios: 'Relatórios', usuarios: 'Usuários', catalogo: 'Catálogo online' };
+const TITLES = { dashboard: 'Painel', pdv: 'PDV — Caixa', vendas: 'Vendas e pedidos', receber: 'Contas a receber', produtos: 'Produtos e estoque', clientes: 'Clientes', funil: 'Funil de vendas (CRM)', relatorios: 'Relatórios', usuarios: 'Usuários', catalogo: 'Catálogo online', cupons: 'Cupons de desconto' };
 if (window.registerViews) window.registerViews(V, TITLES);   // telas extras (posts.js)
 function render() {
   if (!cur) return;
@@ -276,12 +291,13 @@ V.dashboard = () => {
 };
 
 /* ========== PDV ========== */
-let cart = [], pdvPct = 0, pdvShip = 0;
+let cart = [], pdvPct = 0, pdvShip = 0, pdvCoup = '';
 V.pdv = () => {
   setMain(`<div class="pos">
     <div><div class="toolbar"><input id="q" placeholder="Buscar produto (nome, código ou categoria)..." autofocus><select id="pcat" style="max-width:220px">${catOptions('', 'Todas as categorias')}</select></div><div class="prods" id="plist"></div></div>
     <div class="card cart"><h3>Carrinho</h3><div id="cartl"></div>
-      <div class="row2"><label>Desconto (%)<input id="dpct" type="number" min="0" max="100" step="0.1" value="${pdvPct || ''}" oninput="pdvPct=Math.min(100,Math.max(0,parseFloat(this.value)||0));pdvTotals()"></label><output id="dval" class="out" aria-label="Desconto em reais">− R$ 0,00</output></div>
+      <div class="row2"><label>Desconto (%)<input id="dpct" type="number" min="0" max="100" step="0.1" value="${pdvPct || ''}" oninput="pdvPct=Math.min(100,Math.max(0,parseFloat(this.value)||0));pdvCoup='';pdvTotals()"></label><output id="dval" class="out" aria-label="Desconto em reais">− R$ 0,00</output></div>
+      <div class="row2"><label>Cupom de desconto<input id="pcoupon" value="${esc(pdvCoup)}" placeholder="CÓDIGO" autocomplete="off" style="text-transform:uppercase"></label><button type="button" class="btn ghost" style="align-self:end" onclick="A.applyCoupon()">Aplicar</button></div>
       <label>Frete (R$)<input id="ship" type="number" min="0" step="0.01" value="${pdvShip || ''}" placeholder="0,00" oninput="pdvShip=Math.max(0,parseFloat(this.value)||0);pdvTotals()"></label>
       <div class="sumr"><span>Subtotal</span><span id="psub"></span></div><div class="sumr"><span>Desconto</span><span id="pdis"></span></div><div class="sumr"><span>Frete</span><span id="pshp"></span></div>
       <div class="tot"><span>Total</span><span id="ptotal"></span></div>
@@ -305,9 +321,9 @@ function cartBar() {
 function pdvList() {
   const q = ($('#q').value || '').toLowerCase(), c = $('#pcat').value;
   const l = db.products.filter(p => (!c || p.category === c) && [p.name, p.sku, p.category].join(' ').toLowerCase().includes(q));
-  $('#plist').innerHTML = l.length ? l.map(p => `<button class="prod" ${p.stock <= 0 ? 'disabled' : ''} onclick="A.addCart('${p.id}')">${p.imgs[0] ? `<img class="pimg" src="${esc(p.imgs[0])}" alt="">` : ''}<b>${esc(p.name)}</b><span>${esc(catName(p.category))} · ${p.stock} un.${hasVar(p) ? ` · ${p.variants.length} variações` : ''}</span><div class="pr">${brl(p.price)}</div></button>`).join('') : '<div class="empty">Nenhum produto encontrado.</div>';
+  $('#plist').innerHTML = l.length ? l.map(p => `<button class="prod" ${p.stock <= 0 ? 'disabled' : ''} onclick="A.addCart('${p.id}')">${p.imgs[0] ? `<img class="pimg" src="${esc(p.imgs[0])}" alt="">` : ''}<b>${esc(p.name)}</b><span>${esc(catName(p.category))} · ${p.stock} un.${hasVar(p) ? ` · ${p.variants.length} variações` : ''}</span><div class="pr">${p.discount > 0 ? `<s class="was">${brl(p.price)}</s> ` : ''}${brl(salePrice(p))}</div></button>`).join('') : '<div class="empty">Nenhum produto encontrado.</div>';
 }
-const cartSubtotal = () => r2(cart.reduce((s, i) => s + (prod(i.pid)?.price || 0) * i.qty, 0));
+const cartSubtotal = () => r2(cart.reduce((s, i) => s + (prod(i.pid) ? salePrice(prod(i.pid)) : 0) * i.qty, 0));
 const pdvDisc = () => r2(cartSubtotal() * pdvPct / 100);
 function pdvTotals() {
   const sub = cartSubtotal(), d = pdvDisc();
@@ -325,7 +341,7 @@ function cashCalc() {
   else { out.textContent = 'Troco ' + brl(rec - total); out.classList.add('ok'); }
 }
 function pdvCart() {
-  $('#cartl').innerHTML = cart.length ? cart.map(i => { const p = prod(i.pid), v = variant(p, i.vid); return `<div class="line"><div class="n"><b>${esc(p.name)}</b><br><small>${v ? esc(vlabel(v)) + ' · ' : ''}${brl(p.price)}</small></div><div class="q"><button onclick="A.qty('${i.pid}','${i.vid || ''}',-1)" aria-label="Diminuir">−</button><b>${i.qty}</b><button onclick="A.qty('${i.pid}','${i.vid || ''}',1)" aria-label="Aumentar">+</button></div><b>${brl(p.price * i.qty)}</b></div>`; }).join('') : '<div class="empty">Carrinho vazio</div>';
+  $('#cartl').innerHTML = cart.length ? cart.map(i => { const p = prod(i.pid), v = variant(p, i.vid); return `<div class="line"><div class="n"><b>${esc(p.name)}</b><br><small>${v ? esc(vlabel(v)) + ' · ' : ''}${brl(salePrice(p))}</small></div><div class="q"><button onclick="A.qty('${i.pid}','${i.vid || ''}',-1)" aria-label="Diminuir">−</button><b>${i.qty}</b><button onclick="A.qty('${i.pid}','${i.vid || ''}',1)" aria-label="Aumentar">+</button></div><b>${brl(salePrice(p) * i.qty)}</b></div>`; }).join('') : '<div class="empty">Carrinho vazio</div>';
   pdvTotals();
 }
 
@@ -393,7 +409,7 @@ function prodTable() {
     <div class="card"><h3>Valor de venda do estoque</h3><div class="kpi">${brl(worth)}</div></div>
     <div class="card"><h3>Lucro potencial</h3><div class="kpi">${brl(worth - invested)}<small>${worth ? Math.round((worth - invested) / worth * 100) : 0}% de margem</small></div></div></div>
   <div class="tw"><table><tr><th>Produto</th><th>Categoria</th><th class="r">Custo médio</th><th class="r">Preço</th><th class="r">Markup</th><th class="r">Margem</th><th class="r">Estoque</th><th class="r">Investido</th><th></th></tr>
-  ${l.map(p => `<tr><td><div style="display:flex;gap:10px;align-items:center">${p.imgs[0] ? `<img class="thumb" src="${esc(p.imgs[0])}" alt="">` : `<span class="thumb ph">${esc(p.name.charAt(0))}</span>`}<span><b>${esc(p.name)}</b>${p.featured ? ' <span class="tag ok">★ destaque</span>' : ''}${p.imgs.length > 1 ? ` <span class="tag">${p.imgs.length} fotos</span>` : ''}<br><small>${esc(p.sku)}</small>${hasVar(p) ? `<br><small class="vlist">${p.variants.map(v => `${esc(vlabel(v))}: <b>${v.stock}</b>`).join(' · ')}</small>` : ''}</span></div></td><td>${esc(catName(p.category))}</td><td class="r">${brl(p.cost)}${Math.abs((p.lastCost || 0) - p.cost) > 0.004 ? `<br><small>último: ${brl(p.lastCost)}</small>` : ''}</td><td class="r">${brl(p.price)}${(() => { const sg = sugPrice(p); return sg && sg > p.price + 0.004 ? `<br><small class="tag warn" title="Para repor ao último custo mantendo a margem">repor: ${brl(sg)}</small>` : ''; })()}</td><td class="r">${pct(markup(p))}</td><td class="r">${pct(margin(p))}</td>
+  ${l.map(p => `<tr><td><div style="display:flex;gap:10px;align-items:center">${p.imgs[0] ? `<img class="thumb" src="${esc(p.imgs[0])}" alt="">` : `<span class="thumb ph">${esc(p.name.charAt(0))}</span>`}<span><b>${esc(p.name)}</b>${p.featured ? ' <span class="tag ok">★ destaque</span>' : ''}${p.imgs.length > 1 ? ` <span class="tag">${p.imgs.length} fotos</span>` : ''}<br><small>${esc(p.sku)}</small>${hasVar(p) ? `<br><small class="vlist">${p.variants.map(v => `${esc(vlabel(v))}: <b>${v.stock}</b>`).join(' · ')}</small>` : ''}</span></div></td><td>${esc(catName(p.category))}</td><td class="r">${brl(p.cost)}${Math.abs((p.lastCost || 0) - p.cost) > 0.004 ? `<br><small>último: ${brl(p.lastCost)}</small>` : ''}</td><td class="r">${p.discount > 0 ? `<s class="was">${brl(p.price)}</s><br><b>${brl(salePrice(p))}</b> <span class="tag ok">-${p.discount}%</span>` : brl(p.price)}${(() => { const sg = sugPrice(p); return sg && sg > p.price + 0.004 ? `<br><small class="tag warn" title="Para repor ao último custo mantendo a margem">repor: ${brl(sg)}</small>` : ''; })()}</td><td class="r">${pct(markup(p))}</td><td class="r">${pct(margin(p))}</td>
   <td class="r"><span class="tag ${p.stock <= 0 ? 'bad' : p.stock <= p.min ? 'warn' : 'ok'}">${p.stock}</span></td><td class="r">${brl(Math.max(0, p.stock) * p.cost)}</td>
   <td class="r"><button class="btn ghost sm" onclick="A.photo('${p.id}')">Fotos</button> <button class="btn ghost sm" onclick="A.buys('${p.id}')">Compras</button> <button class="btn ghost sm" onclick="A.adjStock('${p.id}')">± Estoque</button> <button class="btn ghost sm" onclick="A.editProd('${p.id}')">Editar</button> <button class="btn bad sm" onclick="A.delProd('${p.id}')" aria-label="Excluir">✕</button></td></tr>`).join('') || '<tr><td colspan="9" class="empty">Nenhum produto encontrado</td></tr>'}</table></div>`;
 }
@@ -550,6 +566,16 @@ V.relatorios = () => {
   <p class="sub">Lucro por produto é calculado antes dos descontos da venda. O frete não entra no lucro.</p>`);
 };
 
+/* ========== Cupons ========== */
+V.cupons = () => {
+  setActions('<button class="btn" onclick="A.editCoupon()">+ Novo cupom</button>');
+  const today = dkey(new Date()), st = c => !c.active ? ['desativado', ''] : c.until && today > c.until ? ['vencido', 'bad'] : c.max > 0 && (c.uses || 0) >= c.max ? ['esgotado', 'warn'] : ['ativo', 'ok'];
+  setMain(`<div class="tw"><table><tr><th>Código</th><th class="r">Desconto</th><th class="r">Compra mínima</th><th>Validade</th><th class="r">Usos</th><th>Situação</th><th></th></tr>
+  ${db.coupons.map(c => { const [t, k] = st(c); return `<tr><td><b>${esc(c.code)}</b></td><td class="r">${c.pct}%</td><td class="r">${c.min > 0 ? brl(c.min) : '—'}</td><td>${c.until ? fday(c.until) : 'Sem validade'}</td><td class="r">${c.uses || 0}${c.max > 0 ? ' / ' + c.max : ''}</td><td><span class="tag ${k}">${t}</span></td>
+  <td class="r"><button class="btn ghost sm" onclick="A.editCoupon('${c.id}')">Editar</button> <button class="btn ghost sm" onclick="A.toggleCoupon('${c.id}')">${c.active ? 'Desativar' : 'Ativar'}</button> <button class="btn bad sm" onclick="A.delCoupon('${c.id}')" aria-label="Excluir">✕</button></td></tr>`; }).join('') || '<tr><td colspan="7" class="empty">Nenhum cupom ainda. Crie o primeiro em "+ Novo cupom".</td></tr>'}</table></div>
+  <p class="sub">No caixa (PDV), digite o código em "Cupom de desconto". No catálogo online o cliente digita o cupom ao enviar o pedido, e o sistema confere e aplica o desconto quando você importa o pedido do WhatsApp. Para divulgar, use o modelo <b>Cupom</b> no Gerador de posts. O desconto do cupom vale sobre o total e soma com o desconto promocional do produto.</p>`);
+};
+
 /* ========== Usuários ========== */
 V.usuarios = () => {
   setActions('<button class="btn" onclick="A.editUser()">+ Novo usuário</button>');
@@ -562,7 +588,7 @@ V.usuarios = () => {
 /* ========== Catálogo online (admin) ========== */
 function catalogHtml() {
   const s = db.settings;
-  const data = { name: s.name || 'Loja', wa: s.wa || '', tagline: s.tagline || '', color: s.color || '#0071e3', products: db.products.map(p => ({ id: p.id, name: p.name, cat: p.category, desc: p.desc, price: p.price, stock: p.stock, imgs: p.imgs, feat: p.featured, vars: hasVar(p) ? p.variants.map(v => ({ id: v.id, s: v.size, c: v.color, q: v.stock })) : [] })) };
+  const data = { name: s.name || 'Loja', wa: s.wa || '', tagline: s.tagline || '', color: s.color || '#0071e3', products: db.products.map(p => ({ id: p.id, name: p.name, cat: p.category, desc: p.desc, price: salePrice(p), old: p.discount > 0 ? p.price : 0, off: p.discount || 0, stock: p.stock, imgs: p.imgs, feat: p.featured, vars: hasVar(p) ? p.variants.map(v => ({ id: v.id, s: v.size, c: v.color, q: v.stock })) : [] })) };
   return CATALOG_TPL.replace('__LIVE__', 'null').replace('__DATA__', () => JSON.stringify(data).replace(/</g, '\\u003c'));
 }
 V.catalogo = () => {
@@ -577,6 +603,7 @@ V.catalogo = () => {
     <label>Mensagem ao tocar num produto do PDF<textarea name="pdfmsg" rows="2">${esc(s.pdfmsg)}</textarea></label>
     <p class="sub">Use {produto}, {preco} e {loja}: o sistema troca pelo nome, preço e nome da loja.</p>
     <label>Instagram (@usuario ou link, aparece na capa do PDF)<input name="ig" value="${esc(s.ig)}" placeholder="@minhaloja"></label>
+    <label>Link do grupo de WhatsApp da loja (para convidar clientes)<input name="wagroup" type="url" value="${esc(s.wagroup)}" placeholder="https://chat.whatsapp.com/..."></label>
     <h4 style="margin:14px 0 6px">Capa do PDF</h4>
     <div class="row"><label>Fundo da capa<select name="cvMode" onchange="A.cvToggle(this.form)"><option value="cor" ${s.cvMode === 'cor' ? 'selected' : ''}>Cor sólida</option><option value="foto" ${s.cvMode === 'foto' ? 'selected' : ''}>Foto com transparência</option></select></label><label>Cor da capa<input name="cvColor" type="color" value="${esc(s.cvColor)}" style="padding:2px;height:40px"></label></div>
     <div id="cvfoto" ${s.cvMode === 'foto' ? '' : 'hidden'}>
@@ -598,7 +625,7 @@ V.catalogo = () => {
 };
 
 /* ========== Ações ========== */
-const toItems = c => c.map(i => { const p = prod(i.pid), v = variant(p, i.vid); return { pid: p.id, vid: v?.id || '', name: v ? `${p.name} (${vlabel(v)})` : p.name, price: p.price, cost: p.cost, qty: i.qty }; });
+const toItems = c => c.map(i => { const p = prod(i.pid), v = variant(p, i.vid); return { pid: p.id, vid: v?.id || '', name: v ? `${p.name} (${vlabel(v)})` : p.name, price: salePrice(p), cost: p.cost, qty: i.qty }; });
 function bump(c, pid, vid, d, refresh) {
   vid = vid || '';
   const i = c.find(x => x.pid === pid && (x.vid || '') === vid), p = prod(pid), st = stockOf(p, vid);
@@ -613,7 +640,11 @@ function pickVariant(id) {
 const A = {
   addCart(id, vid) { if (vid === undefined && hasVar(prod(id))) return pickVariant(id); bump(cart, id, vid, 1, pdvCart); },
   qty: (id, vid, d) => bump(cart, id, vid, d, pdvCart),
-  clearCart: () => { cart = []; pdvPct = 0; pdvShip = 0; V.pdv(); },
+  clearCart: () => { cart = []; pdvPct = 0; pdvShip = 0; pdvCoup = ''; V.pdv(); },
+  applyCoupon() {
+    const chk = couponCheck($('#pcoupon').value, cartSubtotal()); if (!chk.ok) { pdvCoup = ''; return toast(chk.msg); }
+    pdvCoup = chk.c.code; pdvPct = chk.c.pct; $('#dpct').value = pdvPct; $('#pcoupon').value = pdvCoup; pdvTotals(); toast(`Cupom ${pdvCoup}: ${pdvPct}% de desconto`);
+  },
   checkout() {
     if (!cart.length) return toast('Carrinho vazio');
     const method = $('#pmethod').value, clientId = $('#pclient').value, firstDue = $('#pdue').value;
@@ -624,14 +655,16 @@ const A = {
       if (rec > 0 && r2(rec) < total) return toast(`Valor recebido menor que o total (faltam ${brl(total - rec)})`);
       if (rec > 0) { received = r2(rec); change = r2(rec - total); }
     }
-    const s = makeSale({ items: toItems(cart), discount: pdvDisc(), discountPct: pdvPct, shipping: pdvShip, method, clientId, channel: 'loja', status: 'concluída', installments: parseInt($('#pinst').value) || 1, firstDue, received, change });
-    cart = []; pdvPct = 0; pdvShip = 0; V.pdv(); A.viewSale(s.id, 'Venda concluída');
+    let cp = null; if (pdvCoup) { const chk = couponCheck(pdvCoup, cartSubtotal()); if (!chk.ok) { toast(chk.msg + '. Cupom removido.'); pdvCoup = ''; pdvPct = 0; V.pdv(); return; } cp = chk.c; }
+    const s = makeSale({ items: toItems(cart), discount: pdvDisc(), discountPct: pdvPct, shipping: pdvShip, method, clientId, channel: 'loja', status: 'concluída', installments: parseInt($('#pinst').value) || 1, firstDue, received, change, coupon: cp ? cp.code : '' });
+    if (cp) cp.uses = (cp.uses || 0) + 1;
+    cart = []; pdvPct = 0; pdvShip = 0; pdvCoup = ''; V.pdv(); A.viewSale(s.id, 'Venda concluída');
   },
   viewSale(id, title) {
     const s = db.sales.find(x => x.id === id), rec = db.receivables.filter(r => r.saleId === id);
     openModal(title || `Venda #${s.num}`, `${s.note ? `<p class="fiado"><b>Entrega / observações</b><br>${esc(s.note)}</p>` : ''}<p>${fdate(s.date)} · ${s.channel} · ${esc(s.method)}<br>Cliente: ${esc(client(s.clientId)?.name || '—')}<br>Vendedor: ${esc(db.users.find(u => u.id === s.sellerId)?.name || '—')}</p>
     ${s.items.map(i => `<div class="line"><span class="n">${i.qty}× ${esc(i.name)}</span><b>${brl(i.price * i.qty)}</b></div>`).join('')}
-    ${s.discount ? `<div class="line"><span class="n">Desconto${s.discountPct ? ` (${s.discountPct}%)` : ''}</span><b>− ${brl(s.discount)}</b></div>` : ''}${s.shipping ? `<div class="line"><span class="n">Frete</span><b>${brl(s.shipping)}</b></div>` : ''}<div class="tot"><span>Total</span><span>${brl(s.total)}</span></div>
+    ${s.discount ? `<div class="line"><span class="n">Desconto${s.discountPct ? ` (${s.discountPct}%${s.coupon ? ' · cupom ' + esc(s.coupon) : ''})` : ''}</span><b>− ${brl(s.discount)}</b></div>` : ''}${s.shipping ? `<div class="line"><span class="n">Frete</span><b>${brl(s.shipping)}</b></div>` : ''}<div class="tot"><span>Total</span><span>${brl(s.total)}</span></div>
     ${s.received ? `<div class="line"><span class="n">Valor recebido</span><b>${brl(s.received)}</b></div><div class="tot change"><span>Troco</span><span>${brl(s.change)}</span></div>` : ''}
     ${rec.length ? '<p class="sub">Parcelas</p>' + rec.map(r => `<div class="line"><span class="n">${r.num}/${r.of} · vence ${fday(r.due)}</span><b>${brl(r.amount)}</b><span class="tag ${r.paid ? 'ok' : isLate(r) ? 'bad' : 'warn'}">${r.paid ? 'paga' : isLate(r) ? 'atrasada' : 'aberta'}</span></div>`).join('') : ''}
     <button type="button" class="btn ghost" onclick="A.printSale('${id}')">Imprimir recibo</button>`);
@@ -640,7 +673,7 @@ const A = {
     const s = db.sales.find(x => x.id === id), rec = db.receivables.filter(r => r.saleId === id);
     $('#receipt').innerHTML = `<h2>RECIBO DE VENDA</h2><div class="c">Nº ${s.num} · ${fdate(s.date)}</div><hr>
       ${s.items.map(i => `<div class="l"><span>${i.qty}× ${esc(i.name)}</span><span>${brl(i.price * i.qty)}</span></div>`).join('')}<hr>
-      ${s.discount || s.shipping ? `<div class="l"><span>Subtotal</span><span>${brl(s.subtotal)}</span></div>` : ''}${s.discount ? `<div class="l"><span>Desconto${s.discountPct ? ` (${s.discountPct}%)` : ''}</span><span>− ${brl(s.discount)}</span></div>` : ''}${s.shipping ? `<div class="l"><span>Frete</span><span>${brl(s.shipping)}</span></div>` : ''}
+      ${s.discount || s.shipping ? `<div class="l"><span>Subtotal</span><span>${brl(s.subtotal)}</span></div>` : ''}${s.discount ? `<div class="l"><span>Desconto${s.discountPct ? ` (${s.discountPct}%${s.coupon ? ' · cupom ' + esc(s.coupon) : ''})` : ''}</span><span>− ${brl(s.discount)}</span></div>` : ''}${s.shipping ? `<div class="l"><span>Frete</span><span>${brl(s.shipping)}</span></div>` : ''}
       <div class="l"><b>TOTAL</b><b>${brl(s.total)}</b></div><div class="l"><span>Pagamento</span><span>${esc(s.method)}</span></div>
       ${s.received ? `<div class="l"><span>Valor recebido</span><span>${brl(s.received)}</span></div><div class="l"><b>TROCO</b><b>${brl(s.change)}</b></div>` : ''}
       <div class="l"><span>Cliente</span><span>${esc(client(s.clientId)?.name || 'Consumidor')}</span></div>
@@ -685,6 +718,7 @@ const A = {
       ${id ? `<p class="sub">O custo médio se atualiza sozinho a cada compra registrada em <b>Compras</b>. Último custo de compra: <b>${brl(p.lastCost)}</b>${sugPrice(p) ? ` · preço para repor mantendo a margem: <b>${brl(sugPrice(p))}</b>` : ''}.</p>` : ''}
       <div class="row"><label>Markup (%)<input name="markup" type="number" step="any" min="0" value="${p.cost > 0 ? r2(mk) : ''}"></label><label>Margem de lucro (%)<input name="margin" type="number" step="any" min="0" max="100" value="${p.price > 0 ? r2(mg) : ''}"></label></div>
       <p class="sub calc">Lucro por unidade: <b id="profit">${brl(p.price - p.cost)}</b> · Markup é o lucro sobre o <b>custo</b>; margem é o lucro sobre o <b>preço</b>. Edite qualquer um dos três e os outros se ajustam.</p>
+      <div class="row"><label>Desconto promocional (%)<input name="discount" type="number" step="any" min="0" max="90" value="${p.discount || ''}" placeholder="0"></label><output class="out" id="promoout" style="align-self:end"></output></div>
       <label class="chk-l"><input type="checkbox" name="featured" ${p.featured ? 'checked' : ''}> Produto em destaque (aparece primeiro no catálogo e em página própria no PDF)</label>
       <fieldset class="vars"><legend>Tamanho e cor (opcional)</legend>
         <p class="sub">Se o produto tem tamanhos ou cores, cadastre cada variação com o seu estoque. O estoque total vira a soma delas.</p>
@@ -703,7 +737,7 @@ const A = {
         if (seen.has(key)) { toast(`Variação repetida: ${vlabel({ size, color })}`); return false; }
         seen.add(key); variants.push({ id: vids[k] || uid(), size, color, stock: q });
       }
-      const o = { name: fd.get('name').trim(), sku: fd.get('sku').trim(), category: cat, desc: fd.get('desc').trim(), featured: fd.get('featured') === 'on', cost: parseFloat(fd.get('cost')) || 0, price, variants, stock: variants.length ? variants.reduce((s, v) => s + v.stock, 0) : parseInt(fd.get('stock')) || 0, min: parseInt(fd.get('min')) || 0 };
+      const o = { name: fd.get('name').trim(), sku: fd.get('sku').trim(), category: cat, desc: fd.get('desc').trim(), featured: fd.get('featured') === 'on', discount: Math.min(90, Math.max(0, parseFloat(fd.get('discount')) || 0)), cost: parseFloat(fd.get('cost')) || 0, price, variants, stock: variants.length ? variants.reduce((s, v) => s + v.stock, 0) : parseInt(fd.get('stock')) || 0, min: parseInt(fd.get('min')) || 0 };
       ensureCat(cat); if (id) Object.assign(p, o); else db.products.push({ id: uid(), imgs: [], ...o, lastCost: o.cost, buys: o.stock > 0 && o.cost > 0 ? [{ id: uid(), date: dkey(new Date()), qty: o.stock, cost: o.cost, avg: o.cost, who: 'Estoque inicial', opt: '', vid: '', prev: 0, prevLast: 0 }] : [] }); save(); V.produtos();
     });
     const F = $('#mform'); let last = 'price';
@@ -720,6 +754,8 @@ const A = {
       $('#profit').textContent = brl(pr - c);
     };
     ['cost', 'price', 'markup', 'margin'].forEach(n => F[n].addEventListener('input', () => { if (n !== 'cost') last = n; upd(n); }));
+    const pv = () => { const pr = num('price'), d = num('discount'); $('#promoout').textContent = d > 0 ? 'Preço com desconto: ' + brl(pr * (1 - d / 100)) : 'Sem desconto'; };
+    ['price', 'discount'].forEach(n => F[n].addEventListener('input', pv)); pv();
     F.category.onchange = () => { $('#ncw').hidden = F.category.value !== '__new'; };
     /* variações (tamanho e cor) */
     const rows = $('#vrows');
@@ -745,6 +781,22 @@ const A = {
     rows.addEventListener('input', vsync);
   },
   photo: id => photoModal(id),
+  editCoupon(id) {
+    const c = id ? db.coupons.find(x => x.id === id) : { code: '', pct: 10, min: 0, until: '', max: 0 };
+    openModal(id ? 'Editar cupom' : 'Novo cupom', `<label>Código do cupom (letras e números)<input name="code" maxlength="20" value="${esc(c.code)}" required style="text-transform:uppercase" placeholder="BEMVINDA10"></label>
+      <div class="row"><label>Desconto (%)<input name="pct" type="number" min="1" max="90" step="any" value="${c.pct}" required></label><label>Compra mínima (R$)<input name="min" type="number" min="0" step="any" value="${c.min || ''}" placeholder="sem mínimo"></label></div>
+      <div class="row"><label>Vale até (opcional)<input name="until" type="date" value="${esc(c.until || '')}"></label><label>Limite de usos (0 = ilimitado)<input name="max" type="number" min="0" step="1" value="${c.max || ''}" placeholder="ilimitado"></label></div>`, fd => {
+      const code = normCode(fd.get('code')), pct = parseFloat(fd.get('pct')) || 0;
+      if (!code) { toast('Informe o código do cupom'); return false; }
+      if (pct < 1 || pct > 90) { toast('O desconto deve ficar entre 1% e 90%'); return false; }
+      if (db.coupons.some(x => x.code === code && x.id !== id)) { toast('Já existe um cupom com esse código'); return false; }
+      const o = { code, pct, min: parseFloat(fd.get('min')) || 0, until: fd.get('until') || '', max: parseInt(fd.get('max')) || 0 };
+      if (id) Object.assign(c, o); else db.coupons.push({ id: uid(), uses: 0, active: true, ...o });
+      save(); V.cupons();
+    });
+  },
+  toggleCoupon(id) { const c = db.coupons.find(x => x.id === id); if (c) { c.active = !c.active; save(); V.cupons(); } },
+  delCoupon(id) { const c = db.coupons.find(x => x.id === id); if (c && confirmDel(`Excluir o cupom ${c.code}? As vendas que o usaram continuam no histórico.`)) { db.coupons = db.coupons.filter(x => x.id !== id); save(); V.cupons(); } },
   buys(id) {
     const p = prod(id), b = (p.buys || []).map((x, i) => ({ ...x, i })).sort((x, y) => y.date.localeCompare(x.date) || y.i - x.i), sg = sugPrice(p);
     const qty = sum(b, x => x.qty), spent = sum(b, x => x.qty * x.cost), last = (p.buys || [])[(p.buys || []).length - 1];
@@ -838,7 +890,7 @@ const A = {
   },
   syncForm() { const f = document.querySelector('#catform'); if (f) A.saveSettings(f, true); },
   saveSettings(f, quiet) {
-    db.settings.pdfmsg = f.pdfmsg.value.trim() || DEF_PDFMSG; db.settings.url = f.url.value.trim(); db.settings.name = f.name.value.trim() || 'Minha loja'; db.settings.tagline = f.tagline.value.trim(); db.settings.wa = f.wa.value.replace(/\D/g, ''); db.settings.color = f.color.value; db.settings.ig = f.ig.value.trim(); db.settings.cvMode = f.cvMode.value; db.settings.cvColor = f.cvColor.value; db.settings.cvOp = +f.cvOp.value || 40; save(); if (!quiet) toast('Dados da loja salvos');
+    db.settings.pdfmsg = f.pdfmsg.value.trim() || DEF_PDFMSG; db.settings.url = f.url.value.trim(); db.settings.name = f.name.value.trim() || 'Minha loja'; db.settings.tagline = f.tagline.value.trim(); db.settings.wa = f.wa.value.replace(/\D/g, ''); db.settings.color = f.color.value; db.settings.ig = f.ig.value.trim(); db.settings.wagroup = f.wagroup.value.trim(); db.settings.cvMode = f.cvMode.value; db.settings.cvColor = f.cvColor.value; db.settings.cvOp = +f.cvOp.value || 40; save(); if (!quiet) toast('Dados da loja salvos');
   },
   downloadCatalog() { A.syncForm(); if (!db.settings.wa) toast('Dica: configure o WhatsApp antes de publicar'); download('catalogo.html', catalogHtml(), 'text/html'); },
   pdfCatalog() {
@@ -851,7 +903,7 @@ const A = {
     const igUser = (s.ig || '').trim().replace(/^https?:\/\/(www\.)?instagram\.com\//i, '').replace(/^@/, '').split(/[/?#]/)[0].replace(/[^\w.]/g, ''), igLink = igUser ? 'https://instagram.com/' + igUser : '';
     const urlLink = /^https?:\/\//i.test(s.url || '') ? s.url : (s.url ? 'https://' + s.url : '');
     const digits = s.wa || '', wa = digits.replace(/^55(\d{2})(\d{4,5})(\d{4})$/, '($1) $2-$3');
-    const msg = p => (s.pdfmsg || DEF_PDFMSG).replace(/\{produto\}/g, p.name).replace(/\{preco\}/g, brl(p.price)).replace(/\{loja\}/g, s.name);
+    const msg = p => (s.pdfmsg || DEF_PDFMSG).replace(/\{produto\}/g, p.name).replace(/\{preco\}/g, brl(salePrice(p))).replace(/\{loja\}/g, s.name);
     const link = p => digits ? 'https://wa.me/' + digits + '?text=' + encodeURIComponent(msg(p)) : '';
     const wrap = (p, cls, inner) => { const h = link(p); return h ? `<a class="${cls}" href="${esc(h)}" target="_blank" rel="noopener">${inner}</a>` : `<div class="${cls}">${inner}</div>`; };
     const pic = p => `<div class="im">${p.imgs[0] ? `<img src="${esc(p.imgs[0])}" alt="">` : `<span>${esc(p.name.charAt(0))}</span>`}${p.featured ? '<i class="st">★ Destaque</i>' : ''}</div>`;
@@ -859,8 +911,9 @@ const A = {
       const av = hasVar(p) ? p.variants.filter(v => v.stock > 0) : [], u = k => [...new Set(av.map(v => v[k]).filter(Boolean))];
       const z = u('size'), c = u('color'); return z.length || c.length ? `<p class="d">${[z.length && 'Tamanhos: ' + z.join(', '), c.length && 'Cores: ' + c.join(', ')].filter(Boolean).map(esc).join(' · ')}</p>` : '';
     };
-    const small = p => wrap(p, 'p', `${pic(p)}<div class="b"><h3>${esc(p.name)}</h3>${p.desc ? `<p class="d">${esc(p.desc)}</p>` : ''}${vopts(p)}<div class="pr">${brl(p.price)}</div>${digits ? '<div class="cta">Pedir no WhatsApp &rsaquo;</div>' : ''}</div>`);
-    const big = p => wrap(p, 'f', `${pic(p)}<div class="b"><h3>${esc(p.name)}</h3>${p.desc ? `<p class="d">${esc(p.desc)}</p>` : ''}${vopts(p)}<div class="pr">${brl(p.price)}</div>${digits ? '<div class="btn">Pedir no WhatsApp &rsaquo;</div>' : ''}</div>`);
+    const prc = p => (p.discount > 0 ? `<s style="opacity:.55;font-weight:400;font-size:.8em">${brl(p.price)}</s> ` : '') + brl(salePrice(p));
+    const small = p => wrap(p, 'p', `${pic(p)}<div class="b"><h3>${esc(p.name)}</h3>${p.desc ? `<p class="d">${esc(p.desc)}</p>` : ''}${vopts(p)}<div class="pr">${prc(p)}</div>${digits ? '<div class="cta">Pedir no WhatsApp &rsaquo;</div>' : ''}</div>`);
+    const big = p => wrap(p, 'f', `${pic(p)}<div class="b"><h3>${esc(p.name)}</h3>${p.desc ? `<p class="d">${esc(p.desc)}</p>` : ''}${vopts(p)}<div class="pr">${prc(p)}</div>${digits ? '<div class="btn">Pedir no WhatsApp &rsaquo;</div>' : ''}</div>`);
     const feats = items.filter(p => p.featured).slice(0, 6);
     const groups = {}; items.forEach(p => (groups[p.category || 'Outros'] ||= []).push(p));
     const order = [...new Set([...db.categories, ...Object.keys(groups)])].filter(c => groups[c]);
@@ -935,15 +988,18 @@ ${order.map(c => `<section class="cat"><h2 class="sec"><span>${esc(c)}</span><sm
     if (!m) return toast('Mensagem não reconhecida: cole o pedido completo, com a linha [[PED ...]]');
     const get = r => (t.match(r)?.[1] || '').trim();
     const items = [], lost = [];
-    m[1].split(',').forEach(x => { const [ref, q] = x.split(':'), [id, vid] = ref.split('~'), p = prod(id), qty = parseInt(q) || 0, v = variant(p, vid); if (p && qty > 0) items.push({ pid: p.id, vid: v?.id || '', name: v ? `${p.name} (${vlabel(v)})` : p.name, price: p.price, cost: p.cost, qty }); else lost.push(id); });
+    m[1].split(',').forEach(x => { const [ref, q] = x.split(':'), [id, vid] = ref.split('~'), p = prod(id), qty = parseInt(q) || 0, v = variant(p, vid); if (p && qty > 0) items.push({ pid: p.id, vid: v?.id || '', name: v ? `${p.name} (${vlabel(v)})` : p.name, price: salePrice(p), cost: p.cost, qty }); else lost.push(id); });
     if (!items.length) return toast('Nenhum produto da mensagem existe mais no sistema');
     const name = get(/Cliente:\s*(.+)/) || 'Cliente online', phone = get(/Telefone:\s*(.+)/), addr = get(/Endere[cç]o:\s*(.+)/), obs = get(/Obs:\s*(.+)/);
     let pay = get(/Pagamento:\s*(.+)/); if (!ONLINE_METHODS.includes(pay)) pay = 'Pix';
     let c = phone && db.clients.find(x => x.phone === phone);
     if (!c) { c = { id: uid(), name, phone, email: '', notes: addr }; db.clients.push(c); }
-    const note = [addr && 'Entrega: ' + addr, obs && 'Obs: ' + obs].filter(Boolean).join(' · ');
-    const s = makeSale({ items, shipping: parseFloat($('#wafrete').value) || 0, method: pay, clientId: c.id, channel: 'online', status: 'pendente', note });
-    $('#wamsg').value = ''; $('#wafrete').value = ''; toast(`Pedido #${s.num} importado` + (lost.length ? ` (${lost.length} item(ns) não encontrado(s))` : ''));
+    const sub = r2(items.reduce((a, i) => a + i.price * i.qty, 0)), code = get(/Cupom:\s*(\S+)/); let cp = null, cnote = '';
+    if (code) { const chk = couponCheck(code, sub); if (chk.ok) { cp = chk.c; cnote = 'Cupom ' + cp.code + ' (' + cp.pct + '%)'; } else cnote = 'Cupom "' + code + '" não aplicado: ' + chk.msg; }
+    const note = [addr && 'Entrega: ' + addr, obs && 'Obs: ' + obs, cnote].filter(Boolean).join(' · ');
+    const s = makeSale({ items, discount: cp ? r2(sub * cp.pct / 100) : 0, discountPct: cp ? cp.pct : 0, coupon: cp ? cp.code : '', shipping: parseFloat($('#wafrete').value) || 0, method: pay, clientId: c.id, channel: 'online', status: 'pendente', note });
+    if (cp) cp.uses = (cp.uses || 0) + 1;
+    $('#wamsg').value = ''; $('#wafrete').value = ''; toast(`Pedido #${s.num} importado` + (cnote ? ' · ' + cnote : '') + (lost.length ? ` (${lost.length} item(ns) não encontrado(s))` : ''));
   },
   logout() { if (CL.enabled) { CL.signOut(); return; } sessSet(null); cur = null; showLogin(); },
   myPassword(force) {

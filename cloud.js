@@ -7,7 +7,7 @@
   window.CLOUD = C;
   if (!C.enabled) return;
 
-  const COLS = ['products', 'clients', 'leads', 'sales', 'receivables', 'users'];
+  const COLS = ['products', 'clients', 'leads', 'sales', 'receivables', 'coupons', 'users'];
   const METAS = {
     settings: {
       admin: true,
@@ -131,7 +131,7 @@
   };
 
   /* ---------- catálogo público (espelho sem custo nem dados internos) ---------- */
-  const pubOf = p => ({ id: p.id, name: p.name || '', cat: p.category || '', desc: p.desc || '', price: +p.price || 0, stock: +p.stock || 0, imgs: p.imgs || [], feat: !!p.featured, ord: p._ts || 0, vars: (p.variants && p.variants.length) ? p.variants.map(v => ({ id: v.id, s: v.size || '', c: v.color || '', q: +v.stock || 0 })) : [] });
+  const pubOf = p => ({ id: p.id, name: p.name || '', cat: p.category || '', desc: p.desc || '', price: (p.discount > 0 ? Math.round(p.price * (1 - p.discount / 100) * 100) / 100 : +p.price) || 0, old: p.discount > 0 ? +p.price || 0 : 0, off: +p.discount || 0, stock: +p.stock || 0, imgs: p.imgs || [], feat: !!p.featured, ord: p._ts || 0, vars: (p.variants && p.variants.length) ? p.variants.map(v => ({ id: v.id, s: v.size || '', c: v.color || '', q: +v.stock || 0 })) : [] });
   const pubMeta = db => { const s = db.settings || {}; return { name: s.name || 'Loja', wa: s.wa || '', tagline: s.tagline || '', color: s.color || '#0071e3' }; };
   async function mirror(pops, metaChanged) {
     const ops = pops.map(o => o.del ? { id: o.id, del: true } : { id: o.id, data: clean(pubOf(o.data)) });

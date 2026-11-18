@@ -52,6 +52,13 @@ service cloud.firestore {
       allow write: if admin();
     }
 
+    // Cupons de desconto: só administrador cria/edita; vendedor lê e só soma o contador de usos.
+    match /coupons/{id} {
+      allow read: if member();
+      allow create, delete: if admin();
+      allow update: if admin() || (member() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['uses']));
+    }
+
     match /sales/{id}       { allow read, write: if member(); }
     match /clients/{id}     { allow read, write: if member(); }
     match /leads/{id}       { allow read, write: if member(); }

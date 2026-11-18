@@ -296,3 +296,4 @@ select{cursor:pointer}
 /* compras e custo médio */
 .sug{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:10px 12px;border-radius:10px;background:rgba(255,255,255,.05);margin:8px 0;font-size:14px}
 .sug.up{background:rgba(255,200,60,.12);border:1px solid rgba(255,200,60,.35)}
+.was{opacity:.6;font-weight:400;font-size:.85em}

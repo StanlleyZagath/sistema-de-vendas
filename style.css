@@ -21,7 +21,8 @@ tbody tr:hover td,table tr:hover td{background:var(--soft)}
 th{background:transparent}
 .side{width:220px;background:var(--card);border-right:1px solid var(--line);padding:16px 12px;display:flex;flex-direction:column;gap:12px;position:sticky;top:0;height:100vh}
 .brand{font-weight:700;font-size:18px;padding:4px 8px}
-#nav{display:flex;flex-direction:column;gap:2px}
+#nav{display:flex;flex-direction:column;gap:2px;flex:1 1 auto;min-height:0;overflow-y:auto;scrollbar-width:thin}
+#nav>*{flex-shrink:0}
 #nav a{padding:9px 10px;border-radius:8px;color:var(--txt);text-decoration:none}
 #nav a:hover{background:var(--soft)}
 #nav a.on{background:var(--pri);color:var(--pri-t);font-weight:600}
@@ -79,7 +80,7 @@ td.r,th.r{text-align:right}
 .lead small{color:var(--mut);display:block}
 .lead .v{font-weight:700;color:var(--pri)}
 .empty{color:var(--mut);text-align:center;padding:30px}
-.shop-hero{background:linear-gradient(135deg,var(--pri),#7c3aed);color:#fff;border-radius:14px;padding:20px;margin-bottom:14px}
+.shop-hero{background:linear-gradient(135deg,var(--pri),var(--pri));color:#fff;border-radius:14px;padding:20px;margin-bottom:14px}
 .shop-hero h2{margin:0 0 4px}
 dialog{border:0;border-radius:14px;padding:20px;width:min(480px,94vw);background:var(--card);color:var(--txt)}
 dialog::backdrop{background:#0008}
@@ -149,7 +150,7 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--pri);outline-off
 .btn{background-image:linear-gradient(180deg,rgba(255,255,255,.24),rgba(255,255,255,0) 60%);box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 2px 8px rgba(0,0,0,.12)}
 .btn.ghost{background:var(--g-field);background-image:none;box-shadow:var(--g-in);border:1px solid var(--g-bd)}
 #nav a:hover{background:var(--g-hover)}
-#nav a.on{background-image:linear-gradient(180deg,rgba(255,255,255,.24),rgba(255,255,255,0));box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 4px 14px rgba(15,107,92,.3)}
+#nav a.on{background-image:linear-gradient(180deg,rgba(255,255,255,.24),rgba(255,255,255,0));box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 2px 6px rgba(0,0,0,.28)}
 table tr:hover td,tbody tr:hover td{background:var(--g-hover)}
 th,td{border-bottom-color:rgba(128,128,128,.18)}
 .col{background:var(--g-hover)}

@@ -93,6 +93,7 @@ label input,label select,label textarea{display:block;width:100%;margin-top:4px;
 .mt{color:var(--mut);text-align:center;padding:40px 0}
 .ft{max-width:1080px;margin:0 auto;padding:10px 20px 40px;color:var(--mut);font-size:13px;text-align:center}
 @media (max-width:720px){.dg{grid-template-columns:1fr}.sh{padding:20px 16px;border-radius:24px}.ov{padding:10px;align-items:flex-end}.bagsh{align-self:auto;margin:0 auto;max-height:94vh}#grid{gap:12px;grid-template-columns:repeat(2,1fr)}.pb{padding:12px 14px 16px}.pb h3{font-size:16px}.hero{padding-top:34px}}
+.was{opacity:.55;font-weight:400;font-size:.8em}
 </style></head><body>
 <header class="hd"><div><span class="brand" id="brand"></span><button class="bagb" id="bagbtn" aria-label="Abrir sacola"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8h12l-1 12H7L6 8z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/></svg><span>Sacola</span><i id="cnt"></i></button></div></header>
 <button id="fab" aria-label="Ver sacola"><span><span id="fabn"></span><small id="fabt"></small></span><span class="r">Ver sacola &rarr;</span></button>
@@ -112,7 +113,6 @@ label input,label select,label textarea{display:block;width:100%;margin-top:4px;
 <label>Observações<textarea name="obs" rows="2"></textarea></label>
 <button class="wa" id="send">Enviar pedido pelo WhatsApp</button></form></div></div></div>
 <script>
-.was{opacity:.55;font-weight:400;font-size:.8em}
 var LIVE={"apiKey":"AIzaSyCL0cv4EKFlkuPs9SMBL4BWPqvOm1ae_pQ","authDomain":"sistema-vendas-loja-60a6f.firebaseapp.com","projectId":"sistema-vendas-loja-60a6f","storageBucket":"sistema-vendas-loja-60a6f.firebasestorage.app","messagingSenderId":"403750600449","appId":"1:403750600449:web:06094aab296877a732a500"},D={"name":"Loja","wa":"","tagline":"","color":"#0071e3","products":[]},cart={},cat="",q="",sort="",only=false,openId="",selVid="",NL=String.fromCharCode(10);
 function $(s){return document.querySelector(s)}
 function brl(n){return n.toLocaleString("pt-BR",{style:"currency",currency:"BRL"})}

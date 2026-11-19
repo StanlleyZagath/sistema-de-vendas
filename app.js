@@ -449,7 +449,12 @@ function photoModal(id) {
   const inp = $('#pimgs');
   if (inp) inp.onchange = async () => {
     const files = [...inp.files].slice(0, MAXIMG - p.imgs.length); let bad = 0;
-    for (const file of files) { try { p.imgs.push(await shrink(file)); } catch (e) { bad++; } }
+    for (let i = 0; i < files.length; i++) {
+      // Orçamento de ~900 KB por produto (limite do Firebase é 1 MB): divide o espaço livre entre as fotos que ainda faltam (considera pelo menos 4 fotos no total).
+      const used = p.imgs.reduce((n, s) => n + s.length, 0), slots = Math.max(4, p.imgs.length + files.length - i) - p.imgs.length;
+      const cap = Math.max(60000, Math.min(400000, Math.floor((900000 - used) / slots)));
+      try { p.imgs.push(await shrink(files[i], 1080, cap)); } catch (e) { bad++; }
+    }
     save(); photoModal(id); if (location.hash === '#produtos') prodTable(); if (bad) toast(`${bad} arquivo(s) não puderam ser lidos`);
   };
 }

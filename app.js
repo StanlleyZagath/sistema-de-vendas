@@ -30,7 +30,7 @@ function seed() {
 function normalize(d) {
   d.settings ||= {}; d.settings.name ||= 'Minha loja'; d.settings.wa ||= '';
   d.settings.tagline ??= 'Escolha seus produtos e finalize o pedido pelo WhatsApp.'; d.settings.color ||= '#0071e3'; d.settings.url ||= ''; d.settings.pdfmsg ||= DEF_PDFMSG; d.nfeKeys ||= []; d.settings.ig ||= ''; d.settings.cvMode ||= 'cor'; d.settings.cvColor ||= d.settings.color; d.settings.cvImg ||= ''; d.settings.cvOp ??= 40;
-  d.coupons = Array.isArray(d.coupons) ? d.coupons : []; d.settings.wagroup ||= ''; d.settings.parc ||= 0; d.settings.frases ||= '';
+  d.coupons = Array.isArray(d.coupons) ? d.coupons : []; d.settings.wagroup ||= ''; d.settings.parc ||= 0; d.settings.entrega ||= '';
   d.receivables ||= []; d.users ||= []; d.sales ||= []; d.leads ||= []; d.clients ||= []; d.categories ||= [];
   d.products.forEach(p => {
     if (!p.imgs) p.imgs = p.img ? [p.img] : [];
@@ -615,9 +615,6 @@ V.catalogo = () => {
     <p class="sub">Use {produto}, {preco} e {loja}: o sistema troca pelo nome, preço e nome da loja.</p>
     <label>Instagram (@usuario ou link, aparece na capa do PDF)<input name="ig" value="${esc(s.ig)}" placeholder="@minhaloja"></label>
     <label>Link do grupo de WhatsApp da loja (para convidar clientes)<input name="wagroup" type="url" value="${esc(s.wagroup)}" placeholder="https://chat.whatsapp.com/..."></label>
-    <h4 style="margin:14px 0 6px">Destaques nos posts</h4>
-    <label>Parcelamento sem juros (nº de vezes, 0 = não mostrar)<input name="parc" type="number" min="0" max="12" step="1" value="${esc(s.parc || 0)}"></label>
-    <label>Frases da loja (uma por linha, entram como destaque quando faltar algo melhor)<textarea name="frases" rows="3" placeholder="Troca grátis&#10;Entrega em 24h">${esc(s.frases)}</textarea></label>
     <h4 style="margin:14px 0 6px">Capa do PDF</h4>
     <div class="row"><label>Fundo da capa<select name="cvMode" onchange="A.cvToggle(this.form)"><option value="cor" ${s.cvMode === 'cor' ? 'selected' : ''}>Cor sólida</option><option value="foto" ${s.cvMode === 'foto' ? 'selected' : ''}>Foto com transparência</option></select></label><label>Cor da capa<input name="cvColor" type="color" value="${esc(s.cvColor)}" style="padding:2px;height:40px"></label></div>
     <div id="cvfoto" ${s.cvMode === 'foto' ? '' : 'hidden'}>
@@ -905,7 +902,7 @@ const A = {
   },
   syncForm() { const f = document.querySelector('#catform'); if (f) A.saveSettings(f, true); },
   saveSettings(f, quiet) {
-    db.settings.pdfmsg = f.pdfmsg.value.trim() || DEF_PDFMSG; db.settings.url = f.url.value.trim(); db.settings.name = f.name.value.trim() || 'Minha loja'; db.settings.tagline = f.tagline.value.trim(); db.settings.wa = f.wa.value.replace(/\D/g, ''); db.settings.color = f.color.value; db.settings.ig = f.ig.value.trim(); db.settings.wagroup = f.wagroup.value.trim(); db.settings.parc = Math.min(12, Math.max(0, parseInt(f.parc.value) || 0)); db.settings.frases = f.frases.value.split('\n').map(x => x.trim()).filter(Boolean).slice(0, 8).join('\n'); db.settings.cvMode = f.cvMode.value; db.settings.cvColor = f.cvColor.value; db.settings.cvOp = +f.cvOp.value || 40; save(); if (!quiet) toast('Dados da loja salvos');
+    db.settings.pdfmsg = f.pdfmsg.value.trim() || DEF_PDFMSG; db.settings.url = f.url.value.trim(); db.settings.name = f.name.value.trim() || 'Minha loja'; db.settings.tagline = f.tagline.value.trim(); db.settings.wa = f.wa.value.replace(/\D/g, ''); db.settings.color = f.color.value; db.settings.ig = f.ig.value.trim(); db.settings.wagroup = f.wagroup.value.trim(); db.settings.cvMode = f.cvMode.value; db.settings.cvColor = f.cvColor.value; db.settings.cvOp = +f.cvOp.value || 40; save(); if (!quiet) toast('Dados da loja salvos');
   },
   downloadCatalog() { A.syncForm(); if (!db.settings.wa) toast('Dica: configure o WhatsApp antes de publicar'); download('catalogo.html', catalogHtml(), 'text/html'); },
   pdfCatalog() {
@@ -971,7 +968,7 @@ a{color:inherit;text-decoration:none}
 .f:nth-child(2n){margin-right:0}
 .im{position:relative;width:100%;aspect-ratio:1;background:#f5f5f7;display:flex;align-items:center;justify-content:center;font-size:40px;color:#c7c7cc}
 .f .im{aspect-ratio:4/3}
-.im img{width:100%;height:100%;object-fit:contain;padding:8px}
+.im img{width:100%;height:100%;object-fit:cover;object-position:50% 22%}
 .st{position:absolute;top:7px;left:7px;font-style:normal;font-size:9.5px;font-weight:700;background:${ink};color:${ink === color ? txt : '#fff'};padding:3px 8px;border-radius:99px}
 .b{padding:9px 11px 12px}
 .b h3{margin:0;font-size:13px;line-height:1.3}

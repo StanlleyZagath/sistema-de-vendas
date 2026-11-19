@@ -27,7 +27,7 @@
   }
 
   /* ---------- destaques do modelo "Destaques com setas" ----------
-     Prioridade: frases do produto > desconto > últimas unidades > parcelamento > descrição > tamanhos > cores > frases da loja. */
+     Prioridade: destaques escritos > desconto > últimas unidades > parcelamento > entrega > descrição > tamanhos > cores. */
   const SIZE_ORDER = ['PP', 'P', 'M', 'G', 'GG', 'XG', 'XGG', 'G1', 'G2', 'G3', 'EG', 'EGG'];
   function sizeNote(sizes) {
     const up = sizes.map(s => String(s).trim().toUpperCase()), nums = up.map(Number);
@@ -38,14 +38,14 @@
   }
   function noteList(p, c, o) {
     const st = db.settings, out = [], add = t => { t = String(t || '').trim(); if (t && out.length < 2 && !out.includes(t)) out.push(t); };
-    String(p.hl || '').split(/\n+/).map(x => x.trim()).filter(Boolean).slice(0, 2).forEach(add);
+    (Array.isArray(o.hl) ? o.hl : String(p.hl || '').split(/[\r\n]+/)).map(x => String(x).trim()).filter(Boolean).slice(0, 2).forEach(add);
     if (c.off) add(`${c.off}% de desconto`);
     if (c.stock >= 1 && c.stock <= 5) add(c.stock === 1 ? 'última unidade' : `últimas ${c.stock} unidades`);
     const n = Math.min(12, parseInt(st.parc) || 0); if (n >= 2 && c.price / n >= 5) add(`${n}x de ${brl(c.price / n)} sem juros`);
+    if (st.entrega) add(String(st.entrega).toLowerCase());
     (p.desc || '').split(/[.\n;]+/).map(x => x.trim()).filter(x => x.length > 2 && x.length < 34).slice(0, 2).forEach(x => add(x.toLowerCase()));
     if (c.sizes.length) add(sizeNote(c.sizes));
     if (c.colors.length > 1) add(c.colors.length <= 3 ? c.colors.join(' · ').toLowerCase() : `${c.colors.length} cores`);
-    const fr = String(st.frases || '').split(/\n+/).map(x => x.trim()).filter(Boolean); if (fr.length) add(pick(fr).toLowerCase());
     if (!out.length || out.length < 2) add(o.hook.head.length < 34 ? o.hook.head.toLowerCase().replace(/[.!]$/, '') : c.pt);
     return out;
   }
@@ -485,9 +485,25 @@
       const q = slug(S.q), l = db.products.filter(p => !q || slug(p.name + ' ' + (p.category || '')).includes(q));
       $('#plst').innerHTML = l.length ? l.map(p => `<button type="button" class="pg-item ${p.id === S.pid ? 'on' : ''}" onclick="POSTS.sel('${p.id}')">${p.imgs[0] ? `<img class="thumb" src="${esc(p.imgs[0])}" alt="">` : `<span class="thumb ph">${esc(p.name.charAt(0))}</span>`}<span><b>${esc(p.name)}</b><br><small>${brl(salePrice(p))}${p.discount > 0 ? ' (-' + p.discount + '%)' : ''} · ${p.stock} em estoque</small></span></button>`).join('') : '<div class="empty">Nenhum produto encontrado.</div>';
     },
-    sel(id) { S.pid = id; POSTS.list(); POSTS.gen(); },
+    sel(id) { S.pid = id; const pr = prod(id), l = String((pr && pr.hl) || '').split(/[\r\n]+/); $('#phl1').value = l[0] || ''; $('#phl2').value = l[1] || ''; POSTS.list(); POSTS.hlui(); POSTS.gen(); },
+    /* sugestões de destaque (só o que é verdade para este produto, mais ideias prontas) */
+    hlsug() {
+      const p = prod(S.pid), st = db.settings, out = [];
+      if (p) { const c = ctxOf(p), n = Math.min(12, parseInt(st.parc) || 0);
+        if (c.off) out.push(c.off + '% de desconto'); if (c.stock >= 1 && c.stock <= 5) out.push(c.stock === 1 ? 'Última unidade' : 'Últimas ' + c.stock + ' unidades');
+        if (n >= 2) out.push(n + 'x de ' + brl(c.price / n) + ' sem juros'); if (c.sizes.length) out.push(sizeNote(c.sizes)); if (c.colors.length > 1) out.push(c.colors.length + ' cores');
+        (p.desc || '').split(/[.\r\n;]+/).map(x => x.trim()).filter(x => x.length > 2 && x.length < 34).slice(0, 2).forEach(x => out.push(x)); }
+      ['Entrega grátis', 'Entrega em 24h', 'Troca grátis', 'Pronta entrega', 'Tecido que não amassa', 'Bolso funcional', 'Peça exclusiva', 'Envio para todo o Brasil'].forEach(x => out.push(x));
+      return [...new Set(out)].slice(0, 14);
+    },
+    hlui() {
+      const box = $('#phlsug'); if (!box) return;
+      box.innerHTML = POSTS.hlsug().map(t => `<button type="button" class="btn ghost sm" data-hl="${esc(t)}">${esc(t)}</button>`).join(' ');
+      box.querySelectorAll('button').forEach(b => b.onclick = () => { const a = $('#phl1'), z = $('#phl2'); (a.value ? z : a).value = b.dataset.hl; POSTS.gen(); });
+    },
+    setSt(k, v) { db.settings[k] = k === 'parc' ? Math.min(12, Math.max(0, parseInt(v) || 0)) : String(v).trim().slice(0, 32); save(); POSTS.hlui(); if (S.has) POSTS.gen(); },
     ui() {
-      const l = $('#play').value; $('#pstyw').style.display = l === 'classico' ? '' : 'none'; $('#pcupw').style.display = l === 'cupom' ? '' : 'none';
+      const l = $('#play').value; $('#pstyw').style.display = l === 'classico' ? '' : 'none'; $('#pcupw').style.display = l === 'cupom' ? '' : 'none'; $('#phlw').style.display = l === 'destaques' ? '' : 'none';
     },
     async gen() {
       const p = prod(S.pid); if (!p) return toast('Escolha um produto na lista');
@@ -509,7 +525,7 @@
         }
       }
       POSTS.cur = { p, c, hook, cta, style, layout };
-      await draw($('#pcv'), p, c, { fmt: S.fmt, style, hook, cta, layout, coupon });
+      await draw($('#pcv'), p, c, { fmt: S.fmt, style, hook, cta, layout, coupon, hl: [$('#phl1').value, $('#phl2').value] });
       $('#pout').hidden = false; $('#pempty').hidden = true;
       $('#phook').innerHTML = `Gancho usado: <b>${esc(hook.label)}</b>${hook.note ? ` · <span class="warn-t">${esc(hook.note)}</span>` : ''}`;
       $('#pcap').value = wcap || caption(p, c, hook, cta); S.has = true; $('#pgo').textContent = 'Gerar outro gancho';
@@ -542,6 +558,12 @@
           <label>Modelo<select id="play" onchange="POSTS.ui()">${opt({ auto: 'Automático (varia)', classico: 'Clássico', capa: 'Foto cheia', polaroid: 'Cartão polaroid', colagem: 'Colagem de fotos', carrossel: 'Vitrine', destaques: 'Destaques com setas', lookdia: 'Look do dia', grupo: 'Convite para o grupo', cupom: 'Cupom de desconto' }, S.layout)}</select></label>
           </div>
           <label id="pstyw">Estilo<select id="psty">${opt({ auto: 'Automático (varia)', cor: 'Cor da loja', claro: 'Claro', escuro: 'Escuro' }, S.style)}</select></label>
+          <div id="phlw" class="hlbox" style="display:none"><h4 style="margin:6px 0">Destaques com setas</h4>
+            <div class="row"><label>Destaque 1<input id="phl1" maxlength="32" placeholder="Automático" onchange="POSTS.gen()"></label><label>Destaque 2<input id="phl2" maxlength="32" placeholder="Automático" onchange="POSTS.gen()"></label></div>
+            <div id="phlsug" style="display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 8px"></div>
+            <div class="row"><label>Parcelas sem juros (0 = não mostrar)<input type="number" min="0" max="12" step="1" value="${esc(db.settings.parc || 0)}" onchange="POSTS.setSt('parc', this.value)"></label><label>Entrega<input list="pentl" maxlength="32" value="${esc(db.settings.entrega || '')}" placeholder="Ex.: Entrega grátis" onchange="POSTS.setSt('entrega', this.value)"></label></div>
+            <datalist id="pentl"><option value="Entrega grátis"><option value="Entrega em 24h"><option value="Entrega em até 3 dias"><option value="Frete grátis"></datalist>
+            <p class="sub">Escreva os seus destaques ou toque numa sugestão. O que ficar vazio o sistema completa sozinho (desconto, estoque, parcelas, entrega, tamanhos e cores).</p></div>
           <label id="pcupw">Cupom do post<select id="pcup">${db.coupons.filter(x => x.active).map(x => `<option value="${x.id}" ${x.id === S.coupon ? 'selected' : ''}>${esc(x.code)} — ${x.pct}%</option>`).join('') || '<option value="">Nenhum cupom ativo (crie em Cupons de desconto)</option>'}</select></label>
           <label>Gancho de venda<select id="pang">${opt({ auto: 'Automático — o melhor para este produto', ...Object.fromEntries(Object.entries(ANGLES).map(([k, a]) => [k, a.n])) }, S.angle)}</select></label>
           <button class="btn" id="pgo" style="width:100%" onclick="POSTS.gen()">${S.has ? 'Gerar outro gancho' : 'Gerar post'}</button>
@@ -554,7 +576,7 @@
             <label>Legenda (pode editar)<textarea id="pcap" rows="10"></textarea></label>
             <div class="pg-btns"><button class="btn" onclick="POSTS.download()">Baixar imagem</button><button class="btn" onclick="POSTS.share()">Compartilhar</button><button class="btn ghost" onclick="POSTS.copy()">Copiar legenda</button><button class="btn ghost" onclick="POSTS.gen()">Outro gancho</button></div>
           </div></div></div>`);
-      POSTS.ui(); POSTS.list(); if (S.pid && S.has) POSTS.gen();
+      POSTS.ui(); POSTS.list(); POSTS.hlui(); if (S.pid && S.has) POSTS.gen();
     };
   };
   window.S_q = v => { S.q = v; POSTS.list(); };

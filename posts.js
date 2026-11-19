@@ -26,6 +26,30 @@
     return { id: p.id, name: p.name, price: sp, pt: brl(sp), old: p.discount > 0 ? brl(p.price) : '', off: p.discount || 0, sizes: uniq('size'), colors: uniq('color'), stock: p.stock, sold, cat: p.category || '', desc: p.desc || '', store: st.name || 'Minha loja' };
   }
 
+  /* ---------- destaques do modelo "Destaques com setas" ----------
+     Prioridade: frases do produto > desconto > últimas unidades > parcelamento > descrição > tamanhos > cores > frases da loja. */
+  const SIZE_ORDER = ['PP', 'P', 'M', 'G', 'GG', 'XG', 'XGG', 'G1', 'G2', 'G3', 'EG', 'EGG'];
+  function sizeNote(sizes) {
+    const up = sizes.map(s => String(s).trim().toUpperCase()), nums = up.map(Number);
+    if (up.length >= 3 && nums.every(n => n > 0)) { const s = [...nums].sort((a, b) => a - b); return `do ${s[0]} ao ${s[s.length - 1]}`; }
+    const idx = up.map(s => SIZE_ORDER.indexOf(s));
+    if (up.length >= 3 && idx.every(i => i >= 0)) { const s = [...idx].sort((a, b) => a - b); return `do ${SIZE_ORDER[s[0]]} ao ${SIZE_ORDER[s[s.length - 1]]}`; }
+    return up.length ? 'tamanhos ' + up.join(' · ') : '';
+  }
+  function noteList(p, c, o) {
+    const st = db.settings, out = [], add = t => { t = String(t || '').trim(); if (t && out.length < 2 && !out.includes(t)) out.push(t); };
+    String(p.hl || '').split(/\n+/).map(x => x.trim()).filter(Boolean).slice(0, 2).forEach(add);
+    if (c.off) add(`${c.off}% de desconto`);
+    if (c.stock >= 1 && c.stock <= 5) add(c.stock === 1 ? 'última unidade' : `últimas ${c.stock} unidades`);
+    const n = Math.min(12, parseInt(st.parc) || 0); if (n >= 2 && c.price / n >= 5) add(`${n}x de ${brl(c.price / n)} sem juros`);
+    (p.desc || '').split(/[.\n;]+/).map(x => x.trim()).filter(x => x.length > 2 && x.length < 34).slice(0, 2).forEach(x => add(x.toLowerCase()));
+    if (c.sizes.length) add(sizeNote(c.sizes));
+    if (c.colors.length > 1) add(c.colors.length <= 3 ? c.colors.join(' · ').toLowerCase() : `${c.colors.length} cores`);
+    const fr = String(st.frases || '').split(/\n+/).map(x => x.trim()).filter(Boolean); if (fr.length) add(pick(fr).toLowerCase());
+    if (!out.length || out.length < 2) add(o.hook.head.length < 34 ? o.hook.head.toLowerCase().replace(/[.!]$/, '') : c.pt);
+    return out;
+  }
+
   /* ---------- ganchos de venda ----------
      Cada ângulo tem uma condição (ok), um peso (w) e várias frases. Cada frase é [título, subtítulo]. */
   const ANGLES = {
@@ -345,8 +369,7 @@
       const top = nTop + nm.l.length * nlh + 30, hasCol = c.colors.length > 0, ctaH = 100, ctaTop = H - 70 - (story ? 140 : 0) - ctaH;
       const ph = Math.max(ctaTop - 30 - (hasCol ? 144 : 70) - top, 260), pw = Math.min(W * 0.54, ph * 0.85), px = M;
       g.save(); shadow(g, 40, 14, 0.22); g.fillStyle = '#fff'; rr(g, px, top, pw, ph, 26); g.fill(); g.restore(); cover(g, im[0], px, top, pw, ph, 26, { fy: 0.35 });
-      const notes = []; (p.desc || '').split(/[.\n;]+/).map(x => x.trim()).filter(x => x.length > 2 && x.length < 34).slice(0, 2).forEach(x => notes.push(x.toLowerCase()));
-      if (notes.length < 2 && c.sizes.length) notes.push('tamanhos ' + c.sizes.join(' · ').toLowerCase()); if (notes.length < 2) notes.push(o.hook.head.length < 34 ? o.hook.head.toLowerCase().replace(/[.!]$/, '') : (c.off ? c.off + '% de desconto' : c.pt));
+      const notes = noteList(p, c, o);
       const ax = px + pw + 30, tx = ax + 50, tw = W - tx - M; g.fillStyle = '#2b2d31'; g.strokeStyle = '#2b2d31'; g.lineWidth = 4; g.lineCap = 'round';
       notes.slice(0, 2).forEach((t, i) => {
         const ny = top + ph * (i ? 0.6 : 0.2), f = fit(g, t, tw, 44, 26, 3, 400, HAND); g.font = `400 ${f.s}px ${HAND}`; f.l.forEach((ln, j) => g.fillText(ln, tx, ny + j * f.s * 1.15));

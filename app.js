@@ -30,7 +30,7 @@ function seed() {
 function normalize(d) {
   d.settings ||= {}; d.settings.name ||= 'Minha loja'; d.settings.wa ||= '';
   d.settings.tagline ??= 'Escolha seus produtos e finalize o pedido pelo WhatsApp.'; d.settings.color ||= '#0071e3'; d.settings.url ||= ''; d.settings.pdfmsg ||= DEF_PDFMSG; d.nfeKeys ||= []; d.settings.ig ||= ''; d.settings.cvMode ||= 'cor'; d.settings.cvColor ||= d.settings.color; d.settings.cvImg ||= ''; d.settings.cvOp ??= 40;
-  d.coupons = Array.isArray(d.coupons) ? d.coupons : []; d.settings.wagroup ||= '';
+  d.coupons = Array.isArray(d.coupons) ? d.coupons : []; d.settings.wagroup ||= ''; d.settings.parc ||= 0; d.settings.frases ||= '';
   d.receivables ||= []; d.users ||= []; d.sales ||= []; d.leads ||= []; d.clients ||= []; d.categories ||= [];
   d.products.forEach(p => {
     if (!p.imgs) p.imgs = p.img ? [p.img] : [];
@@ -615,6 +615,9 @@ V.catalogo = () => {
     <p class="sub">Use {produto}, {preco} e {loja}: o sistema troca pelo nome, preço e nome da loja.</p>
     <label>Instagram (@usuario ou link, aparece na capa do PDF)<input name="ig" value="${esc(s.ig)}" placeholder="@minhaloja"></label>
     <label>Link do grupo de WhatsApp da loja (para convidar clientes)<input name="wagroup" type="url" value="${esc(s.wagroup)}" placeholder="https://chat.whatsapp.com/..."></label>
+    <h4 style="margin:14px 0 6px">Destaques nos posts</h4>
+    <label>Parcelamento sem juros (nº de vezes, 0 = não mostrar)<input name="parc" type="number" min="0" max="12" step="1" value="${esc(s.parc || 0)}"></label>
+    <label>Frases da loja (uma por linha, entram como destaque quando faltar algo melhor)<textarea name="frases" rows="3" placeholder="Troca grátis&#10;Entrega em 24h">${esc(s.frases)}</textarea></label>
     <h4 style="margin:14px 0 6px">Capa do PDF</h4>
     <div class="row"><label>Fundo da capa<select name="cvMode" onchange="A.cvToggle(this.form)"><option value="cor" ${s.cvMode === 'cor' ? 'selected' : ''}>Cor sólida</option><option value="foto" ${s.cvMode === 'foto' ? 'selected' : ''}>Foto com transparência</option></select></label><label>Cor da capa<input name="cvColor" type="color" value="${esc(s.cvColor)}" style="padding:2px;height:40px"></label></div>
     <div id="cvfoto" ${s.cvMode === 'foto' ? '' : 'hidden'}>
@@ -725,6 +728,7 @@ const A = {
       <label>Categoria<select name="category">${catOptions(p.category, 'Sem categoria')}<option value="__new">+ Nova categoria…</option></select></label></div>
       <label id="ncw" hidden>Nome da nova categoria<input name="newcat" maxlength="40"></label>
       <label>Descrição (aparece no catálogo)<textarea name="desc" rows="2">${esc(p.desc)}</textarea></label>
+      <label>Destaques para os posts (até 2 frases curtas, uma por linha)<textarea name="hl" rows="2" maxlength="80" placeholder="Bolso funcional&#10;Tecido que não amassa">${esc(p.hl)}</textarea></label>
       <div class="row"><label>Custo médio (R$)<input name="cost" type="number" step="any" min="0" value="${p.cost || ''}"></label><label>Preço de venda (R$)<input name="price" type="number" step="any" min="0" value="${p.price || ''}" required></label></div>
       ${id ? `<p class="sub">O custo médio se atualiza sozinho a cada compra registrada em <b>Compras</b>. Último custo de compra: <b>${brl(p.lastCost)}</b>${sugPrice(p) ? ` · preço para repor mantendo a margem: <b>${brl(sugPrice(p))}</b>` : ''}.</p>` : ''}
       <div class="row"><label>Markup (%)<input name="markup" type="number" step="any" min="0" value="${p.cost > 0 ? r2(mk) : ''}"></label><label>Margem de lucro (%)<input name="margin" type="number" step="any" min="0" max="100" value="${p.price > 0 ? r2(mg) : ''}"></label></div>
@@ -748,7 +752,7 @@ const A = {
         if (seen.has(key)) { toast(`Variação repetida: ${vlabel({ size, color })}`); return false; }
         seen.add(key); variants.push({ id: vids[k] || uid(), size, color, stock: q });
       }
-      const o = { name: fd.get('name').trim(), sku: fd.get('sku').trim(), category: cat, desc: fd.get('desc').trim(), featured: fd.get('featured') === 'on', discount: Math.min(90, Math.max(0, parseFloat(fd.get('discount')) || 0)), cost: parseFloat(fd.get('cost')) || 0, price, variants, stock: variants.length ? variants.reduce((s, v) => s + v.stock, 0) : parseInt(fd.get('stock')) || 0, min: parseInt(fd.get('min')) || 0 };
+      const o = { name: fd.get('name').trim(), sku: fd.get('sku').trim(), category: cat, desc: fd.get('desc').trim(), hl: fd.get('hl').split('\n').map(x => x.trim().slice(0, 32)).filter(Boolean).slice(0, 2).join('\n'), featured: fd.get('featured') === 'on', discount: Math.min(90, Math.max(0, parseFloat(fd.get('discount')) || 0)), cost: parseFloat(fd.get('cost')) || 0, price, variants, stock: variants.length ? variants.reduce((s, v) => s + v.stock, 0) : parseInt(fd.get('stock')) || 0, min: parseInt(fd.get('min')) || 0 };
       ensureCat(cat); if (id) Object.assign(p, o); else db.products.push({ id: uid(), imgs: [], ...o, lastCost: o.cost, buys: o.stock > 0 && o.cost > 0 ? [{ id: uid(), date: dkey(new Date()), qty: o.stock, cost: o.cost, avg: o.cost, who: 'Estoque inicial', opt: '', vid: '', prev: 0, prevLast: 0 }] : [] }); save(); V.produtos();
     });
     const F = $('#mform'); let last = 'price';
@@ -901,7 +905,7 @@ const A = {
   },
   syncForm() { const f = document.querySelector('#catform'); if (f) A.saveSettings(f, true); },
   saveSettings(f, quiet) {
-    db.settings.pdfmsg = f.pdfmsg.value.trim() || DEF_PDFMSG; db.settings.url = f.url.value.trim(); db.settings.name = f.name.value.trim() || 'Minha loja'; db.settings.tagline = f.tagline.value.trim(); db.settings.wa = f.wa.value.replace(/\D/g, ''); db.settings.color = f.color.value; db.settings.ig = f.ig.value.trim(); db.settings.wagroup = f.wagroup.value.trim(); db.settings.cvMode = f.cvMode.value; db.settings.cvColor = f.cvColor.value; db.settings.cvOp = +f.cvOp.value || 40; save(); if (!quiet) toast('Dados da loja salvos');
+    db.settings.pdfmsg = f.pdfmsg.value.trim() || DEF_PDFMSG; db.settings.url = f.url.value.trim(); db.settings.name = f.name.value.trim() || 'Minha loja'; db.settings.tagline = f.tagline.value.trim(); db.settings.wa = f.wa.value.replace(/\D/g, ''); db.settings.color = f.color.value; db.settings.ig = f.ig.value.trim(); db.settings.wagroup = f.wagroup.value.trim(); db.settings.parc = Math.min(12, Math.max(0, parseInt(f.parc.value) || 0)); db.settings.frases = f.frases.value.split('\n').map(x => x.trim()).filter(Boolean).slice(0, 8).join('\n'); db.settings.cvMode = f.cvMode.value; db.settings.cvColor = f.cvColor.value; db.settings.cvOp = +f.cvOp.value || 40; save(); if (!quiet) toast('Dados da loja salvos');
   },
   downloadCatalog() { A.syncForm(); if (!db.settings.wa) toast('Dica: configure o WhatsApp antes de publicar'); download('catalogo.html', catalogHtml(), 'text/html'); },
   pdfCatalog() {
